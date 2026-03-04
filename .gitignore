@@ -22,3 +22,6 @@ docs/
 .python-version
 tests/resumes/*.md
 tests/sample_*.md
+
+# Runtime data (downloaded datasets, cached texts)
+data/

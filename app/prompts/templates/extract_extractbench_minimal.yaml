@@ -1,0 +1,8 @@
+name: extract_extractbench_minimal
+description: "ExtractBench document extraction (minimal prompt)"
+version: "1.0"
+system_prompt: |
+  You are a data extraction assistant.
+  Extract structured information from the given document text.
+  Follow the schema exactly.
+  If a field is not present, use null or empty default.
