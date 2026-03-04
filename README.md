@@ -235,21 +235,18 @@ result = program(system_prompt=prompt, text=text)
 
 ### Result Matrix
 
-```
-  Framework/Mode                       A_desc     B_nodesc       C_rich    Overall
-  ------------------------------ ------------ ------------ ------------ ----------
-  instructor/tools                     94.6%       94.9%       95.5%     95.0%
-  instructor/json_schema               94.9%       94.7%       96.0%     95.2%
-  openai/default                       82.5%       85.2%       96.0%     87.9%
-  langchain/json_schema             84.0%(1F)       81.1%       96.0%     87.1%
-  langchain/function_calling         ALL FAIL     ALL FAIL       96.0%     96.0%
-  marvin/default                       93.5%       94.4%       95.8%     94.6%
-  pydantic_ai/default                  38.7%    40.5%(2F)       96.0%     59.7%
-  mirascope/default                 35.0%(5F)    34.2%(5F)       96.0%     65.3%
-  guardrails/default                 7.8%(6F)     6.0%(7F)       96.0%     59.4%
-
-  COMBINATION AVG                   73.6%(22F)    76.0%(24F)    95.9%(0F)
-```
+| Framework / Mode | A_desc | B_nodesc | C_rich | Overall |
+|-----------------|--------|----------|--------|---------|
+| [Instructor](https://python.useinstructor.com/) / tools | 94.6% | 94.9% | 95.5% | **95.0%** |
+| [Instructor](https://python.useinstructor.com/) / json_schema | 94.9% | 94.7% | 96.0% | **95.2%** |
+| [OpenAI Native](https://platform.openai.com/docs/guides/structured-outputs) / default | 82.5% | 85.2% | 96.0% | 87.9% |
+| [LangChain](https://python.langchain.com/docs/how_to/structured_output/) / json_schema | 84.0% (1F) | 81.1% | 96.0% | 87.1% |
+| [LangChain](https://python.langchain.com/docs/how_to/structured_output/) / function_calling | ALL FAIL | ALL FAIL | 96.0% | 96.0% |
+| [Marvin](https://askmarvin.ai/docs/text/extraction/) / default | 93.5% | 94.4% | 95.8% | **94.6%** |
+| [PydanticAI](https://ai.pydantic.dev/output/) / default | 38.7% | 40.5% (2F) | 96.0% | 59.7% |
+| [Mirascope](https://mirascope.com/docs/mirascope/guides/getting-started/structured-outputs/) / default | 35.0% (5F) | 34.2% (5F) | 96.0% | 65.3% |
+| [Guardrails](https://www.guardrailsai.com/docs/how_to_guides/generate_structured_data) / default | 7.8% (6F) | 6.0% (7F) | 96.0% | 59.4% |
+| **AVG** | 73.6% (22F) | 76.0% (24F) | 95.9% (0F) | — |
 
 > `(NF)` = 10건 중 N건 실패 (파싱 에러 또는 validation 실패). `ALL FAIL` = 10건 모두 실패.
 
@@ -372,9 +369,14 @@ curl -X POST http://localhost:8000/api/extract \
 
 ## References
 
+### Articles & Tools
 - [The best library for structured LLM output](https://simmering.dev/blog/structured_output/) — Paul Simmering
 - [llm-structured-output-benchmarks](https://github.com/stephenleo/llm-structured-output-benchmarks) — Stephen Leo
-- [JSONSchemaBench](https://github.com/guidance-ai/jsonschemabench) — Guidance AI
+
+### Benchmark Datasets
+- [JSONSchemaBench](https://github.com/guidance-ai/jsonschemabench) — 10K real-world JSON Schemas for constrained decoding evaluation
+- [ExtractBench](https://arxiv.org/abs/2602.12247) — PDF-to-JSON structured extraction, 35 docs + JSON Schema + human-annotated GT (12,867 fields)
+- [DeepJSONEval](https://arxiv.org/abs/2509.25922) — Multilingual deep-nested JSON extraction benchmark with schema + input + GT (2,100 instances)
 
 ---
 

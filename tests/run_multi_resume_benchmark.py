@@ -45,6 +45,7 @@ FW_MODES = [
     ("pydantic_ai", "default"),
     ("mirascope", "default"),
     ("guardrails", "default"),
+    ("llamaindex", "default"),
 ]
 
 # 3가지 조합
