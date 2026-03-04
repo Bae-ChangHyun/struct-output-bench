@@ -8,8 +8,12 @@ from .downloader import ensure_dataset
 from .pdf_converter import extract_text_from_pdf, TEXTS_DIR
 
 
-def load_samples() -> list[dict]:
+def load_samples(max_text_length: int = 50000) -> list[dict]:
     """ExtractBench 샘플 로드.
+
+    Args:
+        max_text_length: 이 글자 수를 초과하는 문서는 건너뜀 (context window 초과 방지).
+                         0이면 필터 없음.
 
     Returns:
         각 샘플: {id, text, schema_dict, ground_truth, domain, schema_name, pdf_path}
@@ -64,6 +68,9 @@ def load_samples() -> list[dict]:
                 else:
                     text = extract_text_from_pdf(pdf_path)
                     cache_path.write_text(text, encoding="utf-8")
+
+                if max_text_length and len(text) > max_text_length:
+                    continue
 
                 samples.append({
                     "id": cache_key,
