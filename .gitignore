@@ -23,5 +23,5 @@ docs/
 tests/resumes/*.md
 tests/sample_*.md
 
-# Downloaded datasets (runtime download)
+# Runtime data (downloaded datasets, cached texts)
 data/
