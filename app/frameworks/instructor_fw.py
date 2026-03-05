@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import asyncio
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import instructor
+from instructor.processing import schema as _instructor_schema
+from instructor.providers.openai import utils as _instructor_openai_utils
 from openai import AsyncOpenAI
 
 from app.frameworks.base import BaseFrameworkAdapter, ExtractionResult
@@ -22,6 +23,47 @@ _MODE_MAP = {
 }
 
 
+def _resolve_refs(schema: dict) -> dict:
+    """Recursively inline $ref/$defs in a JSON Schema for vLLM compatibility."""
+    defs = schema.pop("$defs", {})
+    if not defs:
+        return schema
+
+    def _resolve(node: Any) -> Any:
+        if isinstance(node, dict):
+            if "$ref" in node:
+                ref_name = node["$ref"].rsplit("/", 1)[-1]
+                if ref_name in defs:
+                    return _resolve(defs[ref_name])
+                return node
+            return {k: _resolve(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [_resolve(item) for item in node]
+        return node
+
+    return _resolve(schema)
+
+
+# Monkeypatch instructor's generate_openai_schema to resolve $ref.
+# instructor sends $defs/$ref to the API, which vLLM models cannot interpret.
+_original_generate_openai_schema = _instructor_schema.generate_openai_schema.__wrapped__
+
+
+def _patched_generate_openai_schema(model: type) -> dict[str, Any]:
+    result = _original_generate_openai_schema(model)
+    if "$defs" in result.get("parameters", {}):
+        result = {
+            **result,
+            "parameters": _resolve_refs(result["parameters"].copy()),
+        }
+    return result
+
+
+_instructor_schema.generate_openai_schema = _patched_generate_openai_schema  # type: ignore[assignment]
+# Also patch the already-bound reference in openai utils (from ... import)
+_instructor_openai_utils.generate_openai_schema = _patched_generate_openai_schema  # type: ignore[assignment]
+
+
 @FrameworkRegistry.register("instructor")
 class InstructorAdapter(BaseFrameworkAdapter):
     name = "instructor"
@@ -35,39 +77,20 @@ class InstructorAdapter(BaseFrameworkAdapter):
     ) -> ExtractionResult:
         mode = _MODE_MAP.get(self.mode, instructor.Mode.TOOLS)
 
-        # vLLM용: from_provider("ollama/model") 패턴 사용
-        # from_provider는 sync client를 반환하므로 to_thread 사용
-        if self.base_url and self.base_url != "https://api.openai.com/v1":
-            client = instructor.from_provider(
-                f"ollama/{self.model}",
-                base_url=self.base_url,
-            )
+        client = instructor.from_openai(
+            AsyncOpenAI(base_url=self.base_url, api_key=self.api_key),
+            mode=mode,
+        )
 
-            def _call():
-                return client.chat.completions.create(
-                    response_model=schema_class,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": text},
-                    ],
-                )
-
-            result = await asyncio.to_thread(_call)
-        else:
-            # OpenAI 직접 연결 시 기존 from_openai + mode 사용
-            client = instructor.from_openai(
-                AsyncOpenAI(base_url=self.base_url, api_key=self.api_key),
-                mode=mode,
-            )
-
-            result = await client.chat.completions.create(
-                model=self.model,
-                response_model=schema_class,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text},
-                ],
-            )
+        result = await client.chat.completions.create(
+            model=self.model,
+            response_model=schema_class,
+            max_retries=0,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text},
+            ],
+        )
 
         return ExtractionResult(
             success=True,
