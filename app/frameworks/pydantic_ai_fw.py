@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
-from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai import Agent, NativeOutput, ToolOutput
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.frameworks.base import BaseFrameworkAdapter, ExtractionResult
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 @FrameworkRegistry.register("pydantic_ai")
 class PydanticAIAdapter(BaseFrameworkAdapter):
     name = "pydantic_ai"
+    supported_modes = ["default", "tool", "json", "text"]
 
     async def extract(
         self,
@@ -23,21 +25,49 @@ class PydanticAIAdapter(BaseFrameworkAdapter):
         schema_class: type[BaseModel],
         system_prompt: str,
     ) -> ExtractionResult:
-        model = OpenAIModel(
+        model = OpenAIChatModel(
             self.model,
             provider=OpenAIProvider(
                 base_url=self.base_url,
                 api_key=self.api_key,
             ),
         )
+
+        output_type = self._build_output_type(schema_class)
+        effective_prompt = system_prompt
+        if self.mode == "text":
+            schema_json = json.dumps(schema_class.model_json_schema(), ensure_ascii=False)
+            effective_prompt = (
+                f"{system_prompt}\n\n"
+                f"You MUST respond with ONLY valid JSON matching this schema:\n{schema_json}"
+            )
         agent = Agent(
             model,
-            system_prompt=system_prompt,
-            output_type=schema_class,
+            system_prompt=effective_prompt,
+            output_type=output_type,
+            retries=3,
         )
         result = await agent.run(text)
+
+        if isinstance(result.output, str):
+            data = json.loads(result.output)
+            validated = schema_class.model_validate(data)
+            return ExtractionResult(success=True, data=validated.model_dump())
 
         return ExtractionResult(
             success=True,
             data=result.output.model_dump(),
         )
+
+    def _build_output_type(self, schema_class: type[BaseModel]):
+        if self.mode == "tool":
+            return ToolOutput(
+                schema_class,
+                name="extract_data",
+                description="Extract structured data from the input text.",
+            )
+        if self.mode in ("json", "default"):
+            return NativeOutput(schema_class)
+        if self.mode == "text":
+            return str
+        return NativeOutput(schema_class)
