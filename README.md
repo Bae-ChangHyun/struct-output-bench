@@ -193,18 +193,20 @@ def do_extract(text, sys_prompt):
 </details>
 
 <details>
-<summary><b>Guardrails</b> — litellm 경유, hosted_vllm provider</summary>
+<summary><b>Guardrails</b> — AsyncGuard + litellm 경유, hosted_vllm provider</summary>
 
 ```python
-guard = Guard.for_pydantic(output_class=schema_class)
-result = guard(
+guard = AsyncGuard.for_pydantic(output_class=schema_class)
+result = await guard(
     model="hosted_vllm/model",
     api_base=base_url,
+    api_key=api_key,
+    num_reasks=0,
     messages=[...],
 )
 ```
 
-내부적으로 litellm을 사용하며, `hosted_vllm/` provider로 vLLM에 연결한다.
+내부적으로 litellm을 사용하며, `hosted_vllm/` provider로 vLLM에 연결한다. `AsyncGuard`로 네이티브 async를 지원하고, `num_reasks=0`으로 벤치마크 공정성을 위해 재시도 없이 단일 호출만 수행한다.
 
 </details>
 
