@@ -22,31 +22,11 @@ from mirascope.llm.providers.openai.responses import (
 
 from app.frameworks.base import BaseFrameworkAdapter, ExtractionResult
 from app.frameworks.registry import FrameworkRegistry
+from app.frameworks.schema_utils import resolve_refs
 
 if TYPE_CHECKING:
     from mirascope.llm import FormattingMode
     from pydantic import BaseModel
-
-
-def _resolve_refs(schema: dict) -> dict:
-    """JSON Schema의 $ref를 inline으로 풀어준다 (vLLM 호환)."""
-    defs = schema.get("$defs", {})
-
-    def _resolve(node):
-        if isinstance(node, dict):
-            if "$ref" in node:
-                ref_name = node["$ref"].rsplit("/", 1)[-1]
-                if ref_name in defs:
-                    return _resolve(defs[ref_name])
-                return node
-            return {k: _resolve(v) for k, v in node.items() if k != "$defs"}
-        if isinstance(node, list):
-            return [_resolve(item) for item in node]
-        return node
-
-    resolved = _resolve(schema)
-    resolved.pop("$defs", None)
-    return resolved
 
 _MODE_MAP: dict[str, FormattingMode] = {
     "default": "tool",
@@ -105,7 +85,7 @@ class MirascopeAdapter(BaseFrameworkAdapter):
 
         # vLLM은 $ref를 해석하지 못하므로 inline 처리
         if fmt.schema and "$ref" in json.dumps(fmt.schema):
-            fmt.schema = _resolve_refs(fmt.schema)
+            fmt.schema = resolve_refs(fmt.schema)
 
         @llm.call(model_id, format=fmt)
         async def do_extract(resume_text: str, sys_prompt: str) -> str:

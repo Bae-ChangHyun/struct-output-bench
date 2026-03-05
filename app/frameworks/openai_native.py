@@ -7,36 +7,10 @@ from openai import AsyncOpenAI
 
 from app.frameworks.base import BaseFrameworkAdapter, ExtractionResult
 from app.frameworks.registry import FrameworkRegistry
+from app.frameworks.schema_utils import resolve_refs
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
-
-
-def _resolve_refs(schema: dict) -> dict:
-    """Recursively inline $ref references in a JSON Schema.
-
-    OpenAI tool calling requires a fully inlined schema without $ref pointers.
-    Pydantic's .model_json_schema() may produce $defs with $ref references,
-    which need to be resolved before sending to the API.
-    """
-    defs = schema.pop("$defs", {})
-    if not defs:
-        return schema
-
-    def _resolve(node):
-        if isinstance(node, dict):
-            if "$ref" in node:
-                ref_path = node["$ref"]  # e.g. "#/$defs/MyModel"
-                ref_name = ref_path.rsplit("/", 1)[-1]
-                if ref_name in defs:
-                    return _resolve(defs[ref_name])
-                return node
-            return {k: _resolve(v) for k, v in node.items()}
-        if isinstance(node, list):
-            return [_resolve(item) for item in node]
-        return node
-
-    return _resolve(schema)
 
 
 @FrameworkRegistry.register("openai")
@@ -93,8 +67,7 @@ class OpenAINativeAdapter(BaseFrameworkAdapter):
         messages: list[dict],
         schema_class: type[BaseModel],
     ) -> ExtractionResult:
-        schema = schema_class.model_json_schema()
-        schema = _resolve_refs(schema)
+        schema = resolve_refs(schema_class.model_json_schema())
         tool_name = schema_class.__name__
 
         completion = await client.chat.completions.create(
