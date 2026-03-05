@@ -8,18 +8,37 @@ COMBINATIONS = [
     {"id": "C_rich", "label": "Schema(nodesc)+Prompt(rich)", "use_desc": False, "use_rich": True},
 ]
 
-# 기본 프레임워크/모드
+# 전체 프레임워크/모드 (alias 제외, 고유 코드 경로만)
 ALL_FW_MODES = [
+    # instructor: "default"는 "tools" alias
     ("instructor", "tools"),
+    ("instructor", "tools_strict"),
+    ("instructor", "json"),
     ("instructor", "json_schema"),
+    ("instructor", "md_json"),
+    # openai: "default"는 parse API (고유)
     ("openai", "default"),
+    ("openai", "tool_calling"),
+    ("openai", "json_object"),
+    # langchain: "default"는 "json_schema" alias
     ("langchain", "json_schema"),
     ("langchain", "function_calling"),
-    ("marvin", "default"),
-    ("pydantic_ai", "default"),
-    ("mirascope", "default"),
+    ("langchain", "json_mode"),
+    # marvin: "cast"와 "extract"만 지원
+    ("marvin", "cast"),
+    ("marvin", "extract"),
+    # pydantic_ai: "default"는 "json" alias (동일 NativeOutput 분기)
+    ("pydantic_ai", "tool"),
+    ("pydantic_ai", "json"),
+    ("pydantic_ai", "text"),
+    # mirascope: "default"는 "tool" alias
+    ("mirascope", "tool"),
+    ("mirascope", "json"),
+    ("mirascope", "strict"),
+    # guardrails: 단일 모드
     ("guardrails", "default"),
-    ("llamaindex", "default"),
+    # llamaindex: "default"는 "text" alias (동일 _extract_text 경로)
+    ("llamaindex", "text"),
     ("llamaindex", "function_calling"),
 ]
 
