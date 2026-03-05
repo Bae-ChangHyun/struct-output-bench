@@ -84,9 +84,9 @@ def _get_completed_fw_modes(run_dir: Path) -> set[tuple[str, str]]:
     for f in run_dir.glob("*.json"):
         if f.name in ("all.json", "run_config.json"):
             continue
-        # {fw}_{mode}.json → (fw, mode)
+        # {fw}--{mode}.json → (fw, mode)
         stem = f.stem
-        parts = stem.rsplit("_", 1)
+        parts = stem.split("--", 1)
         if len(parts) == 2:
             completed.add((parts[0], parts[1]))
     return completed

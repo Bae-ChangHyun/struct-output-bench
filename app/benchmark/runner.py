@@ -79,7 +79,7 @@ def _prepare_models_and_prompts(
 def _save_framework_results(fw_results: list[dict], output_dir: Path, fw: str, mode: str) -> Path:
     """프레임워크별 결과를 개별 JSON 파일로 저장."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{fw}_{mode}.json"
+    filename = f"{fw}--{mode}.json"
     output_path = output_dir / filename
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(fw_results, f, indent=2, ensure_ascii=False, default=str)

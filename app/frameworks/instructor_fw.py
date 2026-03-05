@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 
 from app.frameworks.base import BaseFrameworkAdapter, ExtractionResult
 from app.frameworks.registry import FrameworkRegistry
+from app.frameworks.schema_utils import resolve_refs
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -23,27 +24,6 @@ _MODE_MAP = {
 }
 
 
-def _resolve_refs(schema: dict) -> dict:
-    """Recursively inline $ref/$defs in a JSON Schema for vLLM compatibility."""
-    defs = schema.pop("$defs", {})
-    if not defs:
-        return schema
-
-    def _resolve(node: Any) -> Any:
-        if isinstance(node, dict):
-            if "$ref" in node:
-                ref_name = node["$ref"].rsplit("/", 1)[-1]
-                if ref_name in defs:
-                    return _resolve(defs[ref_name])
-                return node
-            return {k: _resolve(v) for k, v in node.items()}
-        if isinstance(node, list):
-            return [_resolve(item) for item in node]
-        return node
-
-    return _resolve(schema)
-
-
 # Monkeypatch instructor's generate_openai_schema to resolve $ref.
 # instructor sends $defs/$ref to the API, which vLLM models cannot interpret.
 _original_generate_openai_schema = _instructor_schema.generate_openai_schema.__wrapped__
@@ -54,7 +34,7 @@ def _patched_generate_openai_schema(model: type) -> dict[str, Any]:
     if "$defs" in result.get("parameters", {}):
         result = {
             **result,
-            "parameters": _resolve_refs(result["parameters"].copy()),
+            "parameters": resolve_refs(result["parameters"].copy()),
         }
     return result
 
@@ -78,7 +58,7 @@ def _patched_handle_json_modes(
     if isinstance(rf, dict) and "json_schema" in rf:
         schema = rf["json_schema"].get("schema", {})
         if "$defs" in schema:
-            rf["json_schema"]["schema"] = _resolve_refs(schema.copy())
+            rf["json_schema"]["schema"] = resolve_refs(schema.copy())
     return result_model, result_kwargs
 
 
