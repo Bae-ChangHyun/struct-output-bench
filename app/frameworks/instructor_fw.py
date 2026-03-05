@@ -64,6 +64,27 @@ _instructor_schema.generate_openai_schema = _patched_generate_openai_schema  # t
 _instructor_openai_utils.generate_openai_schema = _patched_generate_openai_schema  # type: ignore[assignment]
 
 
+# JSON_SCHEMA 모드는 generate_openai_schema를 안 쓰고 model_json_schema()를 직접 호출.
+# handle_json_modes도 패치하여 $ref를 inline 처리.
+_original_handle_json_modes = _instructor_openai_utils.handle_json_modes
+
+
+def _patched_handle_json_modes(
+    response_model: type[Any] | None, new_kwargs: dict[str, Any], mode: Any
+) -> tuple[type[Any] | None, dict[str, Any]]:
+    result_model, result_kwargs = _original_handle_json_modes(response_model, new_kwargs, mode)
+    # response_format 내 json_schema의 $ref를 inline 처리
+    rf = result_kwargs.get("response_format")
+    if isinstance(rf, dict) and "json_schema" in rf:
+        schema = rf["json_schema"].get("schema", {})
+        if "$defs" in schema:
+            rf["json_schema"]["schema"] = _resolve_refs(schema.copy())
+    return result_model, result_kwargs
+
+
+_instructor_openai_utils.handle_json_modes = _patched_handle_json_modes  # type: ignore[assignment]
+
+
 @FrameworkRegistry.register("instructor")
 class InstructorAdapter(BaseFrameworkAdapter):
     name = "instructor"
