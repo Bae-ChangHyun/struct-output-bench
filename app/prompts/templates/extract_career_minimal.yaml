@@ -1,8 +1,0 @@
-name: extract_career_minimal
-description: "이력서 경력 구조화 추출 (필드 설명 없음 - 최소 프롬프트)"
-version: "1.0"
-system_prompt: |
-  You are a data extraction assistant.
-  Extract structured information from the given resume text.
-  Use YYYY-MM format for dates.
-  If a field is not present, use null or empty default.

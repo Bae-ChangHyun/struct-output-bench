@@ -12,11 +12,13 @@ dependencies = [
     "llama-index-program-openai>=0.1.7",
     "loguru>=0.7.3",
     "marvin>=3.2.6",
+    "matplotlib>=3.10.8",
     "mirascope[openai]>=2.2.2",
     "openai>=2.21.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "pymupdf>=1.27.1",
     "pyyaml>=6.0.3",
+    "streamlit>=1.55.0",
     "uvicorn[standard]>=0.41.0",
 ]

@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 
 from .downloader import ensure_dataset
 from .pdf_converter import extract_text_from_pdf, TEXTS_DIR
 
 
-def load_samples(max_text_length: int = 50000) -> list[dict]:
+def load_samples(max_text_length: int = 50000, max_samples: int | None = None, seed: int | None = None) -> list[dict]:
     """ExtractBench 샘플 로드.
 
     Args:
@@ -81,5 +82,9 @@ def load_samples(max_text_length: int = 50000) -> list[dict]:
                     "schema_name": schema_name,
                     "pdf_path": str(pdf_path),
                 })
+
+    if max_samples and len(samples) > max_samples:
+        rng = random.Random(seed)
+        samples = rng.sample(samples, max_samples)
 
     return samples

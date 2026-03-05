@@ -25,3 +25,4 @@ tests/sample_*.md
 
 # Runtime data (downloaded datasets, cached texts)
 data/
+results/

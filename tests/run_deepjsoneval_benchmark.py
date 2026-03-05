@@ -24,11 +24,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.frameworks.registry import FrameworkRegistry
 from app.prompts.loader import load_prompt
+from app.scoring import score_result
 from app.datasets.deepjsoneval import (
     load_samples,
     json_schema_to_pydantic,
     generate_rich_prompt,
-    score_result,
 )
 
 import app.frameworks  # noqa: F401

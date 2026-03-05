@@ -20,7 +20,7 @@ from app.prompts.loader import load_prompt
 from app.datasets.extractbench.loader import load_samples
 from app.datasets.extractbench.schema_converter import json_schema_to_pydantic
 from app.datasets.extractbench.prompt_generator import generate_rich_prompt
-from app.datasets.extractbench.scorer import score_result
+from app.scoring import score_result
 
 import app.frameworks  # noqa: F401
 
