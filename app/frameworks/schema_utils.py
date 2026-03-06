@@ -36,4 +36,17 @@ def resolve_refs(schema: dict) -> dict:
 
     resolved = _resolve(schema)
     resolved.pop("$defs", None)
+    _add_additional_properties_false(resolved)
     return resolved
+
+
+def _add_additional_properties_false(node: Any) -> None:
+    """모든 object 타입 노드에 additionalProperties: false 추가 (strict 모드 호환)."""
+    if isinstance(node, dict):
+        if node.get("type") == "object" and "properties" in node:
+            node.setdefault("additionalProperties", False)
+        for v in node.values():
+            _add_additional_properties_false(v)
+    elif isinstance(node, list):
+        for item in node:
+            _add_additional_properties_false(item)
