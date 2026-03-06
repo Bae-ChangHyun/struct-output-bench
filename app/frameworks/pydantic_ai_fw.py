@@ -45,7 +45,7 @@ class PydanticAIAdapter(BaseFrameworkAdapter):
             model,
             system_prompt=effective_prompt,
             output_type=output_type,
-            retries=3,
+            retries=0,
         )
         result = await agent.run(text)
 
