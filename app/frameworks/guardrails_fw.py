@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING
 
 from guardrails import AsyncGuard
@@ -42,6 +41,7 @@ class GuardrailsAdapter(BaseFrameworkAdapter):
             api_base=api_base,
             api_key=api_key,
             num_reasks=0,
+            temperature=0,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": text},
