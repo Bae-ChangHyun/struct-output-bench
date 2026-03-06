@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from pydantic_ai import Agent, NativeOutput, ToolOutput
+from pydantic_ai import Agent, NativeOutput, TextOutput, ToolOutput
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -49,11 +49,6 @@ class PydanticAIAdapter(BaseFrameworkAdapter):
         )
         result = await agent.run(text)
 
-        if isinstance(result.output, str):
-            data = json.loads(result.output)
-            validated = schema_class.model_validate(data)
-            return ExtractionResult(success=True, data=validated.model_dump())
-
         return ExtractionResult(
             success=True,
             data=result.output.model_dump(),
@@ -69,5 +64,8 @@ class PydanticAIAdapter(BaseFrameworkAdapter):
         if self.mode in ("json", "default"):
             return NativeOutput(schema_class)
         if self.mode == "text":
-            return str
+            def _parse_json(text: str):
+                data = json.loads(text)
+                return schema_class.model_validate(data)
+            return TextOutput(_parse_json)
         return NativeOutput(schema_class)
