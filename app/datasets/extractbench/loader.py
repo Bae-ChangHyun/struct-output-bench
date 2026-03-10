@@ -48,10 +48,6 @@ def load_samples(max_text_length: int = 50000, max_samples: int | None = None, s
                 continue
 
             for pdf_path in sorted(pdf_gold_dir.glob("*.pdf")):
-                # _extra 폴더 건너뜀
-                if "_extra" in pdf_path.parts:
-                    continue
-
                 stem = pdf_path.stem
                 gold_path = pdf_gold_dir / f"{stem}.gold.json"
                 if not gold_path.exists():

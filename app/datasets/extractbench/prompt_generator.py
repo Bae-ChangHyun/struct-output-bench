@@ -2,7 +2,16 @@
 from __future__ import annotations
 
 
-def _collect_descriptions(schema: dict, path: str = "", depth: int = 0) -> list[str]:
+def _resolve_ref(ref: str, root_schema: dict) -> dict:
+    """#/$defs/xxx 형식의 $ref를 실제 스키마로 해석."""
+    parts = ref.lstrip("#/").split("/")
+    node = root_schema
+    for p in parts:
+        node = node[p]
+    return node
+
+
+def _collect_descriptions(schema: dict, root_schema: dict | None = None, path: str = "", depth: int = 0) -> list[str]:
     """재귀적으로 properties의 description을 계층 구조로 추출."""
     lines: list[str] = []
     indent = "  " * depth
@@ -11,14 +20,28 @@ def _collect_descriptions(schema: dict, path: str = "", depth: int = 0) -> list[
         for name, prop in schema["properties"].items():
             if name == "evaluation_config":
                 continue
-            desc = prop.get("description", "")
-            type_str = prop.get("type", "")
 
-            # anyOf에서 실제 타입 추출
-            if "anyOf" in prop:
-                non_null = [s for s in prop["anyOf"] if s.get("type") != "null"]
+            # $ref 해석
+            resolved_prop = prop
+            if "$ref" in prop and root_schema:
+                resolved_prop = _resolve_ref(prop["$ref"], root_schema)
+                # 원본 description 유지
+                if "description" in prop:
+                    resolved_prop = {**resolved_prop, "description": prop["description"]}
+
+            # anyOf 해석
+            if "anyOf" in resolved_prop and root_schema:
+                non_null = [s for s in resolved_prop["anyOf"] if s.get("type") != "null"]
                 if non_null:
-                    type_str = non_null[0].get("type", "")
+                    inner = non_null[0]
+                    if "$ref" in inner:
+                        inner = _resolve_ref(inner["$ref"], root_schema)
+                    resolved_prop = {**inner}
+                    if "description" in prop:
+                        resolved_prop["description"] = prop["description"]
+
+            desc = resolved_prop.get("description", "")
+            type_str = resolved_prop.get("type", "")
 
             if desc:
                 lines.append(f"{indent}- {name} ({type_str}): {desc}")
@@ -26,15 +49,17 @@ def _collect_descriptions(schema: dict, path: str = "", depth: int = 0) -> list[
                 lines.append(f"{indent}- {name} ({type_str})")
 
             # 재귀: nested object
-            if prop.get("type") == "object" and "properties" in prop:
-                lines.extend(_collect_descriptions(prop, f"{path}.{name}", depth + 1))
+            if resolved_prop.get("type") == "object" and "properties" in resolved_prop:
+                lines.extend(_collect_descriptions(resolved_prop, root_schema, f"{path}.{name}", depth + 1))
 
             # 재귀: array of objects
-            if prop.get("type") == "array" and "items" in prop:
-                items = prop["items"]
+            if resolved_prop.get("type") == "array" and "items" in resolved_prop:
+                items = resolved_prop["items"]
+                if "$ref" in items and root_schema:
+                    items = _resolve_ref(items["$ref"], root_schema)
                 if isinstance(items, dict) and items.get("type") == "object":
                     lines.extend(
-                        _collect_descriptions(items, f"{path}.{name}[]", depth + 1)
+                        _collect_descriptions(items, root_schema, f"{path}.{name}[]", depth + 1)
                     )
 
     return lines
@@ -48,7 +73,7 @@ def generate_rich_prompt(schema_dict: dict) -> str:
     else:
         schema = schema_dict
 
-    field_lines = _collect_descriptions(schema)
+    field_lines = _collect_descriptions(schema, root_schema=schema)
     fields_block = "\n".join(field_lines)
 
     schema_name = schema_dict.get("name", "Document")

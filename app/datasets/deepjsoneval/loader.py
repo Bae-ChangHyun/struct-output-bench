@@ -28,7 +28,7 @@ def load_samples(
         max_depth: 최대 depth 필터
 
     Returns:
-        list of dict: {id, text, schema, ground_truth, category, true_depth}
+        list of dict: {id, text, schema_dict, ground_truth, category, true_depth}
     """
     jsonl_path = ensure_dataset()
     samples = []
@@ -58,7 +58,7 @@ def load_samples(
             samples.append({
                 "id": f"djeval_{idx:04d}",
                 "text": row.get("text", ""),
-                "schema": schema_dict,
+                "schema_dict": schema_dict,
                 "ground_truth": gt_dict,
                 "category": category,
                 "true_depth": depth,

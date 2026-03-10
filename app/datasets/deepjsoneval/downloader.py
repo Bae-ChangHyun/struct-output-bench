@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from urllib.request import urlopen
 
+from loguru import logger
+
 DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "deepjsoneval"
 
 HF_JSONL_URL = (
@@ -21,9 +23,9 @@ def ensure_dataset() -> Path:
         return jsonl_path
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Downloading DeepJSONEval dataset to {jsonl_path} ...")
+    logger.info(f"Downloading DeepJSONEval dataset to {jsonl_path} ...")
 
-    with urlopen(HF_JSONL_URL) as resp:
+    with urlopen(HF_JSONL_URL, timeout=60) as resp:
         raw = resp.read()
 
     # 원본이 JSONL인지 확인 후 저장
@@ -39,5 +41,5 @@ def ensure_dataset() -> Path:
             f.write(line + "\n")
             valid += 1
 
-    print(f"Downloaded {valid} samples to {jsonl_path}")
+    logger.info(f"Downloaded {valid} samples to {jsonl_path}")
     return jsonl_path

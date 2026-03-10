@@ -5,7 +5,7 @@
   json_schema_to_pydantic(schema, with_descriptions, model_name) -> type[BaseModel]
   generate_rich_prompt(schema) -> str
 
-반환되는 sample dict 필수 키: {id, text, schema (dict), ground_truth (dict)}
+반환되는 sample dict 필수 키: {id, text, schema_dict (dict), ground_truth (dict)}
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class DatasetAdapter:
         return self.load_fn(**kwargs)
 
     def get_schema_dict(self, sample: dict) -> dict:
-        return sample.get("schema") or sample.get("schema_dict", {})
+        return sample.get("schema_dict", {})
 
     def get_ground_truth(self, sample: dict) -> dict:
         return sample.get("ground_truth", {})
@@ -78,7 +78,7 @@ def _load_deepjsoneval() -> DatasetAdapter:
 
 def _load_extractbench() -> DatasetAdapter:
     from app.datasets.extractbench.loader import load_samples
-    from app.datasets.extractbench.schema_converter import json_schema_to_pydantic
+    from app.datasets.shared.schema_converter import json_schema_to_pydantic
     from app.datasets.extractbench.prompt_generator import generate_rich_prompt
     from app.benchmark.config import DEFAULT_MINIMAL_PROMPT
 
@@ -101,7 +101,7 @@ def _load_custom() -> DatasetAdapter:
     JSONL 형식: 각 줄에 {"text": "...", "schema": {...}, "ground_truth": {...}}
     --custom-path 인자로 경로를 지정해야 함.
     """
-    from app.datasets.deepjsoneval.schema_converter import json_schema_to_pydantic
+    from app.datasets.shared.schema_converter import json_schema_to_pydantic
     from app.datasets.deepjsoneval.prompt_generator import generate_rich_prompt
     from app.benchmark.config import DEFAULT_MINIMAL_PROMPT
 
@@ -133,7 +133,7 @@ def _load_custom() -> DatasetAdapter:
                 samples.append({
                     "id": row.get("id", f"custom_{idx:04d}"),
                     "text": row.get("text", ""),
-                    "schema": schema,
+                    "schema_dict": schema,
                     "ground_truth": gt,
                 })
 
