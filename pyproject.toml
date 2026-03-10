@@ -1,5 +1,5 @@
 [project]
-name = "struct-bench"
+name = "struct-output-bench"
 version = "0.1.0"
 description = "Benchmark various structured output frameworks with identical inputs"
 requires-python = ">=3.12"
@@ -23,7 +23,7 @@ pydantic-ai = ["pydantic-ai>=1.0.0"]
 
 # All frameworks
 all = [
-    "struct-bench[instructor,langchain,llamaindex,marvin,mirascope,guardrails,pydantic-ai]",
+    "struct-output-bench[instructor,langchain,llamaindex,marvin,mirascope,guardrails,pydantic-ai]",
 ]
 
 # Server (FastAPI)
@@ -46,6 +46,6 @@ datasets = [
 
 # Development (all features)
 dev = [
-    "struct-bench[all,server,dashboard,datasets]",
+    "struct-output-bench[all,server,dashboard,datasets]",
     "python-dotenv>=1.0.0",
 ]
