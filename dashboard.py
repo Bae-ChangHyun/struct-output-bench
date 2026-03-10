@@ -18,6 +18,7 @@ COMBO_DISPLAY = {
     "A_desc": "Prompt(min) + Desc(O)",
     "B_nodesc": "Prompt(min) + Desc(X)",
     "C_rich": "Prompt(rich) + Desc(X)",
+    "D_both": "Prompt(rich) + Desc(O)",
 }
 
 

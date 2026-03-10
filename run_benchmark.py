@@ -350,8 +350,8 @@ Available frameworks: """ + ", ".join(f"{fw}/{m}" for fw, m in ALL_FW_MODES),
     )
     parser.add_argument(
         "--combos", "-c", nargs="+", default=None,
-        choices=["A_desc", "B_nodesc", "C_rich"],
-        help="실행할 조합 선택 (기본: 전체). 예: -c A_desc C_rich",
+        choices=["A_desc", "B_nodesc", "C_rich", "D_both"],
+        help="실행할 조합 선택 (기본: 전체). 예: -c A_desc C_rich D_both",
     )
 
     # 출력

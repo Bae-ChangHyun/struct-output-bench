@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,19 @@ from app.benchmark.datasets import DatasetAdapter
 import app.frameworks  # noqa: F401  (어댑터 자동 등록)
 
 RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "results"
+
+
+def _confidence_interval_95(scores: list[float]) -> tuple[float, float]:
+    """95% 신뢰구간 계산 (정규근사). (lower, upper) 반환."""
+    n = len(scores)
+    if n < 2:
+        mean = scores[0] if n == 1 else 0.0
+        return (mean, mean)
+    mean = sum(scores) / n
+    variance = sum((x - mean) ** 2 for x in scores) / (n - 1)
+    std_err = math.sqrt(variance / n)
+    margin = 1.96 * std_err
+    return (round(mean - margin, 1), round(mean + margin, 1))
 
 
 async def _run_single(
@@ -247,9 +261,9 @@ def print_summary(all_results: list[dict], fw_modes: list[tuple[str, str]], comb
     header = f"  {'Framework/Mode':<30}"
     for combo in combos:
         header += f" {combo['id'][:12]:>12}"
-    header += f" {'Overall':>10}"
+    header += f" {'Overall [95% CI]':>22}"
     summary_lines.append(header)
-    summary_lines.append(f"  {'-'*30}" + f" {'-'*12}" * len(combos) + f" {'-'*10}")
+    summary_lines.append(f"  {'-'*30}" + f" {'-'*12}" * len(combos) + f" {'-'*22}")
 
     for fw, mode in fw_modes:
         label = f"{fw}/{mode}"
@@ -270,7 +284,9 @@ def print_summary(all_results: list[dict], fw_modes: list[tuple[str, str]], comb
             else:
                 row += f" {'ALL FAIL':>12}"
         if overall:
-            row += f" {sum(overall)/len(overall):>8.1f}%"
+            avg_overall = sum(overall) / len(overall)
+            ci_lo, ci_hi = _confidence_interval_95(overall)
+            row += f" {avg_overall:>6.1f}% [{ci_lo:.1f}-{ci_hi:.1f}]"
         else:
             row += f" {'N/A':>10}"
         summary_lines.append(row)
