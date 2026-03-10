@@ -34,8 +34,8 @@ def score_result(
 
     root_schema = unwrap_root(schema)
 
-    # 1. GT와 Predicted를 리프 페어로 분해
-    pairs = flatten_to_pairs(extracted, ground_truth, root_schema, root_schema)
+    # 1. GT와 Predicted를 리프 페어로 분해 (gt, pred 순서)
+    pairs = flatten_to_pairs(ground_truth, extracted, root_schema, root_schema)
 
     if not pairs:
         return {"total": 0.0, "max": 0.0, "pct": 100.0, "field_scores": {}}
