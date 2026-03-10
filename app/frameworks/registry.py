@@ -33,4 +33,4 @@ class FrameworkRegistry:
     @staticmethod
     def list_modes(name: str) -> list[str]:
         cls = FrameworkRegistry.get(name)
-        return cls.supported_modes
+        return list(cls.supported_modes)

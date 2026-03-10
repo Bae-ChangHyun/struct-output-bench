@@ -15,11 +15,14 @@ if TYPE_CHECKING:
 @FrameworkRegistry.register("guardrails")
 class GuardrailsAdapter(BaseFrameworkAdapter):
     name = "guardrails"
-    supported_modes = ["default"]
+    supported_modes = ("default",)
 
     def __init__(self, model, base_url=None, api_key=None, mode="default"):
         super().__init__(model, base_url, api_key, mode)
-        self._model_name = f"hosted_vllm/{self.model}"
+        if self.base_url:
+            self._model_name = f"hosted_vllm/{self.model}"
+        else:
+            self._model_name = self.model
 
     async def extract(
         self,

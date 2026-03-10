@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import marvin
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.frameworks.base import BaseFrameworkAdapter, ExtractionResult
@@ -16,15 +16,15 @@ if TYPE_CHECKING:
 @FrameworkRegistry.register("marvin")
 class MarvinAdapter(BaseFrameworkAdapter):
     name = "marvin"
-    supported_modes = ["cast", "extract"]
+    supported_modes = ("cast", "extract")
 
-    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+    def __init__(self, model, base_url=None, api_key=None, mode="cast"):
         super().__init__(model, base_url, api_key, mode)
         provider = OpenAIProvider(
             base_url=self.base_url,
             api_key=self.api_key or "dummy",
         )
-        self._model = OpenAIModel(self.model, provider=provider)
+        self._model = OpenAIChatModel(self.model, provider=provider)
 
     def _build_agent(self, system_prompt: str) -> marvin.Agent:
         return marvin.Agent(model=self._model, instructions=system_prompt)
@@ -41,7 +41,6 @@ class MarvinAdapter(BaseFrameworkAdapter):
             results = await marvin.extract_async(
                 data=text,
                 target=schema_class,
-                instructions=system_prompt,
                 agent=agent,
             )
             if not results:
@@ -54,7 +53,6 @@ class MarvinAdapter(BaseFrameworkAdapter):
             result = await marvin.cast_async(
                 data=text,
                 target=schema_class,
-                instructions=system_prompt,
                 agent=agent,
             )
 

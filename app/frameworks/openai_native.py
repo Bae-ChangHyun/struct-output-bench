@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 @FrameworkRegistry.register("openai")
 class OpenAINativeAdapter(BaseFrameworkAdapter):
     name = "openai"
-    supported_modes = ["default", "tool_calling", "json_object"]
+    supported_modes = ("default", "tool_calling", "json_object")
 
     def __init__(self, model, base_url=None, api_key=None, mode="default"):
         super().__init__(model, base_url, api_key, mode)

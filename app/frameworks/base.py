@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
@@ -19,7 +19,7 @@ class ExtractionResult(BaseModel):
 
 class BaseFrameworkAdapter(ABC):
     name: str = ""
-    supported_modes: list[str] = ["default"]
+    supported_modes: ClassVar[tuple[str, ...]] = ("default",)
 
     def __init__(
         self,
