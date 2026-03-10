@@ -1,4 +1,6 @@
 # struct-output-bench
+![unnamed](https://github.com/user-attachments/assets/2a616ee9-8f02-4ae7-840a-2ccfcaf11cd5)
+
 
 > LLM에서 구조화된 출력(Structured Output)을 만들기 위한 프레임워크는 Instructor, LangChain, Marvin, PydanticAI 등 다양하게 존재한다.
 > **struct-output-bench**는 이들을 **동일한 조건**(같은 모델, 같은 스키마, 같은 프롬프트, temperature=0)에서 비교 테스트하는 벤치마크 도구이다.
