@@ -1,25 +1,51 @@
 [project]
-name = "structured-output-benchmark"
+name = "struct-bench"
 version = "0.1.0"
 description = "Benchmark various structured output frameworks with identical inputs"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.131.0",
-    "guardrails-ai>=0.9.0",
-    "instructor>=1.14.5",
-    "langchain-openai>=1.1.10",
-    "llama-index-llms-openai-like>=0.1.3",
-    "llama-index-program-openai>=0.1.7",
     "loguru>=0.7.3",
-    "marvin>=3.2.6",
-    "matplotlib>=3.10.8",
-    "mirascope[openai]>=2.2.2",
     "openai>=2.21.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
-    "python-dotenv>=1.0.0",
-    "pymupdf>=1.27.1",
     "pyyaml>=6.0.3",
-    "streamlit>=1.55.0",
+]
+
+[project.optional-dependencies]
+# Individual frameworks
+instructor = ["instructor>=1.14.5"]
+langchain = ["langchain-openai>=1.1.10"]
+llamaindex = ["llama-index-llms-openai-like>=0.1.3", "llama-index-program-openai>=0.1.7"]
+marvin = ["marvin>=3.2.6"]
+mirascope = ["mirascope[openai]>=2.2.2"]
+guardrails = ["guardrails-ai>=0.9.0"]
+pydantic-ai = ["pydantic-ai>=1.0.0"]
+
+# All frameworks
+all = [
+    "struct-bench[instructor,langchain,llamaindex,marvin,mirascope,guardrails,pydantic-ai]",
+]
+
+# Server (FastAPI)
+server = [
+    "fastapi>=0.131.0",
     "uvicorn[standard]>=0.41.0",
+]
+
+# Dashboard
+dashboard = [
+    "streamlit>=1.55.0",
+    "matplotlib>=3.10.8",
+    "pandas>=2.0.0",
+]
+
+# Dataset tools
+datasets = [
+    "pymupdf>=1.27.1",
+]
+
+# Development (all features)
+dev = [
+    "struct-bench[all,server,dashboard,datasets]",
+    "python-dotenv>=1.0.0",
 ]
