@@ -28,7 +28,7 @@ _VLLM_DISABLED_PARAMS = {
 @FrameworkRegistry.register("langchain")
 class LangChainAdapter(BaseFrameworkAdapter):
     name = "langchain"
-    supported_modes = list(_MODE_MAP.keys())
+    supported_modes = tuple(_MODE_MAP.keys())
 
     def __init__(self, model, base_url=None, api_key=None, mode="default"):
         super().__init__(model, base_url, api_key, mode)

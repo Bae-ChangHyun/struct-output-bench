@@ -18,7 +18,7 @@ _PROMPT_TPL = PromptTemplate("{system_prompt}\n\n{text}")
 @FrameworkRegistry.register("llamaindex")
 class LlamaIndexAdapter(BaseFrameworkAdapter):
     name = "llamaindex"
-    supported_modes = ["default", "text", "function_calling"]
+    supported_modes = ("default", "text", "function_calling")
 
     def __init__(self, model, base_url=None, api_key=None, mode="default"):
         super().__init__(model, base_url, api_key, mode)

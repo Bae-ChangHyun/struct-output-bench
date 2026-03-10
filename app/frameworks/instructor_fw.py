@@ -26,7 +26,7 @@ _MODE_MAP = {
 @FrameworkRegistry.register("instructor")
 class InstructorAdapter(BaseFrameworkAdapter):
     name = "instructor"
-    supported_modes = list(_MODE_MAP.keys())
+    supported_modes = tuple(_MODE_MAP.keys())
 
     def __init__(self, model, base_url=None, api_key=None, mode="default"):
         super().__init__(model, base_url, api_key, mode)
@@ -58,7 +58,11 @@ class InstructorAdapter(BaseFrameworkAdapter):
         system_prompt: str,
     ) -> ExtractionResult:
         if not schema_class.__doc__:
-            schema_class.__doc__ = "Extracted structured data"
+            schema_class = type(
+                schema_class.__name__,
+                (schema_class,),
+                {"__doc__": "Extracted structured data"},
+            )
 
         result = await self._client.chat.completions.create(
             model=self.model,

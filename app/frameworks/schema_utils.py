@@ -5,6 +5,7 @@ Pydantic의 .model_json_schema()가 생성하는 $defs/$ref를 inline으로 풀�
 """
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 
@@ -20,6 +21,7 @@ def resolve_refs(schema: dict) -> dict:
     Returns:
         $ref가 모두 inline된 JSON Schema dict
     """
+    schema = copy.deepcopy(schema)
     defs = schema.get("$defs", {})
 
     def _resolve(node: Any) -> Any:
