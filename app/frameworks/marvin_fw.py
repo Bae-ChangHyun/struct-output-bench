@@ -18,13 +18,16 @@ class MarvinAdapter(BaseFrameworkAdapter):
     name = "marvin"
     supported_modes = ["cast", "extract"]
 
-    def _build_agent(self, system_prompt: str) -> marvin.Agent:
+    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+        super().__init__(model, base_url, api_key, mode)
         provider = OpenAIProvider(
             base_url=self.base_url,
             api_key=self.api_key or "dummy",
         )
-        model = OpenAIModel(self.model, provider=provider)
-        return marvin.Agent(model=model, instructions=system_prompt)
+        self._model = OpenAIModel(self.model, provider=provider)
+
+    def _build_agent(self, system_prompt: str) -> marvin.Agent:
+        return marvin.Agent(model=self._model, instructions=system_prompt)
 
     async def extract(
         self,

@@ -17,6 +17,10 @@ class GuardrailsAdapter(BaseFrameworkAdapter):
     name = "guardrails"
     supported_modes = ["default"]
 
+    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+        super().__init__(model, base_url, api_key, mode)
+        self._model_name = f"hosted_vllm/{self.model}"
+
     async def extract(
         self,
         text: str,
@@ -27,7 +31,7 @@ class GuardrailsAdapter(BaseFrameworkAdapter):
 
         # guardrails는 내부적으로 litellm 사용
         # vLLM 등 커스텀 서버: hosted_vllm/ provider 사용
-        model_name = f"hosted_vllm/{self.model}"
+        model_name = self._model_name
         api_key = self.api_key or "dummy"
         api_base = self.base_url
 

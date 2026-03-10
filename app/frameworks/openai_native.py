@@ -18,13 +18,17 @@ class OpenAINativeAdapter(BaseFrameworkAdapter):
     name = "openai"
     supported_modes = ["default", "tool_calling", "json_object"]
 
+    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+        super().__init__(model, base_url, api_key, mode)
+        self._client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+
     async def extract(
         self,
         text: str,
         schema_class: type[BaseModel],
         system_prompt: str,
     ) -> ExtractionResult:
-        client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+        client = self._client
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -48,6 +52,7 @@ class OpenAINativeAdapter(BaseFrameworkAdapter):
             model=self.model,
             messages=messages,
             response_format=schema_class,
+            temperature=0,
         )
         message = completion.choices[0].message
 
@@ -73,6 +78,7 @@ class OpenAINativeAdapter(BaseFrameworkAdapter):
         completion = await client.chat.completions.create(
             model=self.model,
             messages=messages,
+            temperature=0,
             tools=[
                 {
                     "type": "function",
@@ -126,6 +132,7 @@ class OpenAINativeAdapter(BaseFrameworkAdapter):
             model=self.model,
             messages=json_messages,
             response_format={"type": "json_object"},
+            temperature=0,
         )
         content = completion.choices[0].message.content
 

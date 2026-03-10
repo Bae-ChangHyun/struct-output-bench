@@ -19,19 +19,23 @@ class PydanticAIAdapter(BaseFrameworkAdapter):
     name = "pydantic_ai"
     supported_modes = ["default", "tool", "json", "text"]
 
-    async def extract(
-        self,
-        text: str,
-        schema_class: type[BaseModel],
-        system_prompt: str,
-    ) -> ExtractionResult:
-        model = OpenAIChatModel(
+    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+        super().__init__(model, base_url, api_key, mode)
+        self._model = OpenAIChatModel(
             self.model,
             provider=OpenAIProvider(
                 base_url=self.base_url,
                 api_key=self.api_key,
             ),
         )
+
+    async def extract(
+        self,
+        text: str,
+        schema_class: type[BaseModel],
+        system_prompt: str,
+    ) -> ExtractionResult:
+        model = self._model
 
         output_type = self._build_output_type(schema_class)
         effective_prompt = system_prompt
@@ -47,7 +51,7 @@ class PydanticAIAdapter(BaseFrameworkAdapter):
             output_type=output_type,
             retries=0,
         )
-        result = await agent.run(text)
+        result = await agent.run(text, model_settings={"temperature": 0})
 
         return ExtractionResult(
             success=True,

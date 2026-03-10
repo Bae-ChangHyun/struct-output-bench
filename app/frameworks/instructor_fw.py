@@ -28,22 +28,11 @@ class InstructorAdapter(BaseFrameworkAdapter):
     name = "instructor"
     supported_modes = list(_MODE_MAP.keys())
 
-    async def extract(
-        self,
-        text: str,
-        schema_class: type[BaseModel],
-        system_prompt: str,
-    ) -> ExtractionResult:
-        # 동적 생성 모델에 docstring 없으면 vLLM이 description=None 거부
-        if not schema_class.__doc__:
-            schema_class.__doc__ = "Extracted structured data"
-
-        mode = _MODE_MAP.get(self.mode, instructor.Mode.TOOLS)
-
+    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+        super().__init__(model, base_url, api_key, mode)
+        inst_mode = _MODE_MAP.get(self.mode, instructor.Mode.TOOLS)
         base_client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
 
-        # vLLM의 tool_calling은 $ref를 해석하지 못하므로
-        # OpenAI 클라이언트 레벨에서 tool parameters의 $ref를 인라인 처리
         _orig_create = base_client.chat.completions.create
 
         @functools.wraps(_orig_create)
@@ -60,13 +49,22 @@ class InstructorAdapter(BaseFrameworkAdapter):
             return await _orig_create(*args, **kwargs)
 
         base_client.chat.completions.create = _vllm_compat_create  # type: ignore[assignment]
+        self._client = instructor.from_openai(base_client, mode=inst_mode)
 
-        client = instructor.from_openai(base_client, mode=mode)
+    async def extract(
+        self,
+        text: str,
+        schema_class: type[BaseModel],
+        system_prompt: str,
+    ) -> ExtractionResult:
+        if not schema_class.__doc__:
+            schema_class.__doc__ = "Extracted structured data"
 
-        result = await client.chat.completions.create(
+        result = await self._client.chat.completions.create(
             model=self.model,
             response_model=schema_class,
             max_retries=0,
+            temperature=0,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": text},

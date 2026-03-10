@@ -20,6 +20,17 @@ class LlamaIndexAdapter(BaseFrameworkAdapter):
     name = "llamaindex"
     supported_modes = ["default", "text", "function_calling"]
 
+    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+        super().__init__(model, base_url, api_key, mode)
+        self._llm = OpenAILike(
+            model=self.model,
+            api_base=self.base_url,
+            api_key=self.api_key,
+            is_chat_model=True,
+            is_function_calling_model=(self.mode == "function_calling"),
+            temperature=0,
+        )
+
     async def extract(
         self,
         text: str,
@@ -34,16 +45,9 @@ class LlamaIndexAdapter(BaseFrameworkAdapter):
         self, text: str, schema_class: type[BaseModel], system_prompt: str,
     ) -> ExtractionResult:
         """LLMTextCompletionProgram (JSON text mode) — Pydantic v2 직접 사용."""
-        llm = OpenAILike(
-            model=self.model,
-            api_base=self.base_url,
-            api_key=self.api_key,
-            is_chat_model=True,
-        )
-
         program = LLMTextCompletionProgram.from_defaults(
             output_cls=schema_class,
-            llm=llm,
+            llm=self._llm,
             prompt=_PROMPT_TPL,
         )
         result = await program.acall(system_prompt=system_prompt, text=text)
@@ -55,16 +59,9 @@ class LlamaIndexAdapter(BaseFrameworkAdapter):
         self, text: str, schema_class: type[BaseModel], system_prompt: str,
     ) -> ExtractionResult:
         """FunctionCallingProgram — LlamaIndex 네이티브 Function Calling."""
-        llm = OpenAILike(
-            model=self.model,
-            api_base=self.base_url,
-            api_key=self.api_key,
-            is_chat_model=True,
-            is_function_calling_model=True,
-        )
         program = FunctionCallingProgram.from_defaults(
             output_cls=schema_class,
-            llm=llm,
+            llm=self._llm,
             prompt=_PROMPT_TPL,
         )
         result = await program.acall(system_prompt=system_prompt, text=text)

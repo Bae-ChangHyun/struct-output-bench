@@ -30,6 +30,16 @@ class LangChainAdapter(BaseFrameworkAdapter):
     name = "langchain"
     supported_modes = list(_MODE_MAP.keys())
 
+    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+        super().__init__(model, base_url, api_key, mode)
+        self._llm = ChatOpenAI(
+            model=self.model,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            temperature=0,
+            disabled_params=_VLLM_DISABLED_PARAMS,
+        )
+
     async def extract(
         self,
         text: str,
@@ -37,12 +47,7 @@ class LangChainAdapter(BaseFrameworkAdapter):
         system_prompt: str,
     ) -> ExtractionResult:
         method = _MODE_MAP.get(self.mode, "json_schema")
-        llm = ChatOpenAI(
-            model=self.model,
-            base_url=self.base_url,
-            api_key=self.api_key,
-            disabled_params=_VLLM_DISABLED_PARAMS,
-        )
+        llm = self._llm
 
         strict = True if method == "json_schema" else None
         structured_llm = llm.with_structured_output(
