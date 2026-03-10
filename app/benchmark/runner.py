@@ -134,6 +134,7 @@ async def run_benchmark(
 
         for combo in combos:
             combo_scores: list[float] = []
+            combo_successes: list[bool] = []
             logger.info(f"--- {combo['label']} ({combo['id']}) ---")
 
             for sample in samples:
@@ -182,6 +183,7 @@ async def run_benchmark(
                 pct = 0.0
                 sc: dict = {}
                 predicted: Any = None
+                succeeded = False
                 log_prefix = f"[{test_num}/{total_tests}] {label:30s} {combo['id']:8s} {sid}{meta_str}"
                 try:
                     r = await _run_single(
@@ -191,6 +193,7 @@ async def run_benchmark(
                         predicted = r["data"]
                         sc = score_result(predicted, gt, schema_dict)
                         pct = sc["pct"]
+                        succeeded = True
                         logger.success(f"{log_prefix} OK {r['latency_ms']:>7.0f}ms  {pct:>5.1f}%")
                     else:
                         logger.warning(f"{log_prefix} FAIL {r['latency_ms']:>5.0f}ms  {(r.get('error') or '')[:40]}")
@@ -199,6 +202,7 @@ async def run_benchmark(
                     logger.error(f"{log_prefix} ERROR {str(e)[:40]}")
 
                 combo_scores.append(pct)
+                combo_successes.append(succeeded)
 
                 result_entry: dict[str, Any] = {
                     "dataset": adapter.name,
@@ -225,8 +229,8 @@ async def run_benchmark(
                 all_results.append(result_entry)
                 fw_results.append(result_entry)
 
-            # 조합별 평균 (성공 케이스 + 전체)
-            ok = [s for s in combo_scores if s > 0]
+            # 조합별 평균 (성공 케이스 기준 + 전체)
+            ok = [s for s, succ in zip(combo_scores, combo_successes) if succ]
             fail_cnt = len(combo_scores) - len(ok)
             avg_ok = sum(ok) / len(ok) if ok else 0
             avg_all = sum(combo_scores) / len(combo_scores) if combo_scores else 0
@@ -274,7 +278,7 @@ def print_summary(all_results: list[dict], fw_modes: list[tuple[str, str]], comb
                 r for r in all_results
                 if r["combination"] == combo["id"] and r["framework"] == fw and r["mode"] == mode
             ]
-            ok = [r["score_pct"] for r in subset if r["score_pct"] > 0]
+            ok = [r["score_pct"] for r in subset if r.get("success")]
             all_scores = [r["score_pct"] for r in subset]
             fail = len(subset) - len(ok)
             if ok:
@@ -296,7 +300,7 @@ def print_summary(all_results: list[dict], fw_modes: list[tuple[str, str]], comb
     for combo in combos:
         subset = [r for r in all_results if r["combination"] == combo["id"]]
         all_scores = [r["score_pct"] for r in subset]
-        fail = len(subset) - len([s for s in all_scores if s > 0])
+        fail = len(subset) - len([r for r in subset if r.get("success")])
         avg = sum(all_scores) / len(all_scores) if all_scores else 0
         combo_avg_row += f" {avg:>7.1f}%({fail}F)"
     summary_lines.append(combo_avg_row)
@@ -316,7 +320,7 @@ def print_summary(all_results: list[dict], fw_modes: list[tuple[str, str]], comb
                     r for r in all_results
                     if r["combination"] == combo["id"] and r.get(group_key) == g
                 ]
-                ok = [r["score_pct"] for r in subset if r["score_pct"] > 0]
+                ok = [r["score_pct"] for r in subset if r.get("success")]
                 avg = sum(ok) / len(ok) if ok else 0
                 fail = len(subset) - len(ok)
                 row += f" {avg:>7.1f}%({fail}F)"
