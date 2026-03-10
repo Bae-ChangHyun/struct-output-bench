@@ -13,6 +13,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.frameworks.base import BaseFrameworkAdapter
 from app.frameworks.registry import FrameworkRegistry
 from app.scoring import score_result
 from app.benchmark.config import COMBINATIONS, ALL_FW_MODES
@@ -24,12 +25,9 @@ RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "results"
 
 
 async def _run_single(
-    fw: str, mode: str, schema_class: type, system_prompt: str, text: str,
-    model: str, base_url: str, api_key: str,
+    adapter: BaseFrameworkAdapter, schema_class: type, system_prompt: str, text: str,
 ) -> dict:
     """단일 프레임워크 추출 실행."""
-    adapter_cls = FrameworkRegistry.get(fw)
-    adapter = adapter_cls(model=model, base_url=base_url, api_key=api_key, mode=mode)
     result = await adapter.run(
         text=text, schema_class=schema_class, system_prompt=system_prompt,
     )
@@ -116,6 +114,10 @@ async def run_benchmark(
         fw_results: list[dict] = []
         logger.info(f"{'='*50} {label} {'='*50}")
 
+        # 어댑터 인스턴스를 한 번만 생성
+        adapter_cls = FrameworkRegistry.get(fw)
+        fw_adapter = adapter_cls(model=model, base_url=base_url, api_key=api_key, mode=mode)
+
         for combo in combos:
             combo_scores: list[float] = []
             logger.info(f"--- {combo['label']} ({combo['id']}) ---")
@@ -169,8 +171,7 @@ async def run_benchmark(
                 log_prefix = f"[{test_num}/{total_tests}] {label:30s} {combo['id']:8s} {sid}{meta_str}"
                 try:
                     r = await _run_single(
-                        fw, mode, model_cls, prompt, sample["text"],
-                        model, base_url, api_key,
+                        fw_adapter, model_cls, prompt, sample["text"],
                     )
                     if r["success"] and r["data"]:
                         predicted = r["data"]

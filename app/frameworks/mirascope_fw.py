@@ -62,6 +62,16 @@ class MirascopeAdapter(BaseFrameworkAdapter):
     name = "mirascope"
     supported_modes = list(_MODE_MAP.keys())
 
+    def __init__(self, model, base_url=None, api_key=None, mode="default"):
+        super().__init__(model, base_url, api_key, mode)
+        self._model_id = f"openai/{self.model}:completions"
+        llm.register_provider(
+            "openai",
+            scope=self._model_id,
+            base_url=self.base_url,
+            api_key=self.api_key or "no-key",
+        )
+
     async def extract(
         self,
         text: str,
@@ -69,17 +79,7 @@ class MirascopeAdapter(BaseFrameworkAdapter):
         system_prompt: str,
     ) -> ExtractionResult:
         mode = _MODE_MAP.get(self.mode, "tool")
-
-        # vLLM은 OpenAI-compatible API이므로 openai provider 사용
-        # :completions suffix로 Chat Completions API 강제 (vLLM은 Responses API 미지원)
-        model_id = f"openai/{self.model}:completions"
-
-        llm.register_provider(
-            "openai",
-            scope=model_id,
-            base_url=self.base_url,
-            api_key=self.api_key or "no-key",
-        )
+        model_id = self._model_id
 
         fmt = llm.format(schema_class, mode=mode)
 
@@ -87,7 +87,7 @@ class MirascopeAdapter(BaseFrameworkAdapter):
         if fmt.schema and "$ref" in json.dumps(fmt.schema):
             fmt.schema = resolve_refs(fmt.schema)
 
-        @llm.call(model_id, format=fmt)
+        @llm.call(model_id, format=fmt, call_params={"temperature": 0})
         async def do_extract(resume_text: str, sys_prompt: str) -> str:
             return f"{sys_prompt}\n\n{resume_text}"
 
