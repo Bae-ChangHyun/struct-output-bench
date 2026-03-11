@@ -45,7 +45,7 @@ async def extract(req: ExtractionRequest) -> ExtractionResponse:
     except KeyError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    if req.mode != "default" and req.mode not in adapter_cls.supported_modes:
+    if req.mode not in adapter_cls.supported_modes:
         raise HTTPException(
             status_code=400,
             detail=f"Mode '{req.mode}' not supported by '{req.framework}'. "
@@ -64,7 +64,7 @@ async def extract(req: ExtractionRequest) -> ExtractionResponse:
 
     model = req.model or settings.default_model
     base_url = req.base_url or settings.openai_base_url
-    api_key = req.api_key.get_secret_value() if req.api_key else settings.openai_api_key
+    api_key = req.api_key.get_secret_value() if req.api_key else settings.openai_api_key.get_secret_value()
 
     adapter = adapter_cls(
         model=model, base_url=base_url, api_key=api_key, mode=req.mode,
