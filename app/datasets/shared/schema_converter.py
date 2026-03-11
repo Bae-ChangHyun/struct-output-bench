@@ -7,12 +7,14 @@ from pydantic import BaseModel, Field, create_model
 
 
 def _resolve_ref(ref: str, root_schema: dict) -> dict:
-    """#/$defs/xxx 형식의 $ref를 실제 스키마로 해석."""
+    """#/$defs/xxx 형식의 $ref를 실제 스키마로 해석. 누락 시 빈 dict 반환."""
     parts = ref.lstrip("#/").split("/")
     node = root_schema
     for p in parts:
+        if not isinstance(node, dict) or p not in node:
+            return {}
         node = node[p]
-    return node
+    return node if isinstance(node, dict) else {}
 
 
 def _resolve_schema(schema: dict, root_schema: dict) -> dict:

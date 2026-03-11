@@ -9,6 +9,8 @@ import json
 import random
 from pathlib import Path
 
+from loguru import logger
+
 from app.datasets.deepjsoneval.downloader import ensure_dataset
 
 
@@ -39,7 +41,12 @@ def load_samples(
             if not line:
                 continue
 
-            row = json.loads(line)
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Skipping malformed JSONL row {idx}: {e}")
+                continue
+
             category = row.get("category", "unknown")
             depth = row.get("true_depth", 0)
 
@@ -51,9 +58,17 @@ def load_samples(
             if max_depth is not None and depth > max_depth:
                 continue
             schema_raw = row.get("schema", "{}")
-            schema_dict = json.loads(schema_raw) if isinstance(schema_raw, str) else schema_raw
+            try:
+                schema_dict = json.loads(schema_raw) if isinstance(schema_raw, str) else schema_raw
+            except json.JSONDecodeError as e:
+                logger.warning(f"Skipping row {idx}: invalid schema JSON: {e}")
+                continue
             gt_raw = row.get("json", "{}")
-            gt_dict = json.loads(gt_raw) if isinstance(gt_raw, str) else gt_raw
+            try:
+                gt_dict = json.loads(gt_raw) if isinstance(gt_raw, str) else gt_raw
+            except json.JSONDecodeError as e:
+                logger.warning(f"Skipping row {idx}: invalid ground truth JSON: {e}")
+                continue
 
             samples.append({
                 "id": f"djeval_{idx:04d}",

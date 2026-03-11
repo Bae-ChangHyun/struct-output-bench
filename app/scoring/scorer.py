@@ -5,7 +5,7 @@ from typing import Any
 
 from .matcher import LeafPair, flatten_to_pairs
 from .metrics import compare_leaf
-from .schema_utils import unwrap_root
+from .schema_traversal import unwrap_root
 
 
 def score_result(

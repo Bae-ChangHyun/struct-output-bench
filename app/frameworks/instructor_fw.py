@@ -8,7 +8,7 @@ from openai import AsyncOpenAI
 
 from app.frameworks.base import BaseFrameworkAdapter, ExtractionResult
 from app.frameworks.registry import FrameworkRegistry
-from app.frameworks.schema_utils import resolve_refs
+from app.frameworks.ref_resolver import resolve_refs
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
