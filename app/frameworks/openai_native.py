@@ -18,9 +18,9 @@ class OpenAINativeAdapter(BaseFrameworkAdapter):
     name = "openai"
     supported_modes = ("default", "tool_calling", "json_object")
 
-    def __init__(self, model, base_url=None, api_key=None, mode="default"):
-        super().__init__(model, base_url, api_key, mode)
-        self._client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+    def __init__(self, model, base_url=None, api_key=None, mode="default", **kwargs):
+        super().__init__(model, base_url, api_key, mode, **kwargs)
+        self._client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, timeout=self.timeout)
 
     async def extract(
         self,

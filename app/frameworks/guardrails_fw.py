@@ -17,8 +17,8 @@ class GuardrailsAdapter(BaseFrameworkAdapter):
     name = "guardrails"
     supported_modes = ("default",)
 
-    def __init__(self, model, base_url=None, api_key=None, mode="default"):
-        super().__init__(model, base_url, api_key, mode)
+    def __init__(self, model, base_url=None, api_key=None, mode="default", **kwargs):
+        super().__init__(model, base_url, api_key, mode, **kwargs)
         if self.base_url:
             self._model_name = f"hosted_vllm/{self.model}"
         else:

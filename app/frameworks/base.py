@@ -27,11 +27,13 @@ class BaseFrameworkAdapter(ABC):
         base_url: str | None = None,
         api_key: str | None = None,
         mode: str = "default",
+        timeout: float = 120.0,
     ):
         self.model = model
         self.base_url = base_url
         self.api_key = api_key
         self.mode = mode
+        self.timeout = timeout
 
     @abstractmethod
     async def extract(

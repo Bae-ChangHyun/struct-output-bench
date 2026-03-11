@@ -19,8 +19,8 @@ class PydanticAIAdapter(BaseFrameworkAdapter):
     name = "pydantic_ai"
     supported_modes = ("default", "tool", "json", "text")
 
-    def __init__(self, model, base_url=None, api_key=None, mode="default"):
-        super().__init__(model, base_url, api_key, mode)
+    def __init__(self, model, base_url=None, api_key=None, mode="default", **kwargs):
+        super().__init__(model, base_url, api_key, mode, **kwargs)
         self._model = OpenAIChatModel(
             self.model,
             provider=OpenAIProvider(

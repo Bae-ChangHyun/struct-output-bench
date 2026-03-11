@@ -18,8 +18,8 @@ class MarvinAdapter(BaseFrameworkAdapter):
     name = "marvin"
     supported_modes = ("cast", "extract")
 
-    def __init__(self, model, base_url=None, api_key=None, mode="cast"):
-        super().__init__(model, base_url, api_key, mode)
+    def __init__(self, model, base_url=None, api_key=None, mode="cast", **kwargs):
+        super().__init__(model, base_url, api_key, mode, **kwargs)
         provider = OpenAIProvider(
             base_url=self.base_url,
             api_key=self.api_key or "dummy",

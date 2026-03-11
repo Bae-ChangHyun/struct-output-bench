@@ -28,10 +28,10 @@ class InstructorAdapter(BaseFrameworkAdapter):
     name = "instructor"
     supported_modes = tuple(_MODE_MAP.keys())
 
-    def __init__(self, model, base_url=None, api_key=None, mode="default"):
-        super().__init__(model, base_url, api_key, mode)
+    def __init__(self, model, base_url=None, api_key=None, mode="default", **kwargs):
+        super().__init__(model, base_url, api_key, mode, **kwargs)
         inst_mode = _MODE_MAP.get(self.mode, instructor.Mode.TOOLS)
-        base_client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+        base_client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, timeout=self.timeout)
 
         _orig_create = base_client.chat.completions.create
 
@@ -58,11 +58,7 @@ class InstructorAdapter(BaseFrameworkAdapter):
         system_prompt: str,
     ) -> ExtractionResult:
         if not schema_class.__doc__:
-            schema_class = type(
-                schema_class.__name__,
-                (schema_class,),
-                {"__doc__": "Extracted structured data"},
-            )
+            schema_class.__doc__ = "Extracted structured data"
 
         result = await self._client.chat.completions.create(
             model=self.model,

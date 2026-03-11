@@ -65,9 +65,14 @@ try:
     _oai_comp_base.openai_model_name = _patched_model_name
     _oai_resp_encode.model_name = _patched_model_name
     _oai_resp_provider.model_name = _patched_model_name
-except (ImportError, AttributeError):
-    # mirascope 내부 구조 변경 시 패치 건너뜀
-    pass
+except (ImportError, AttributeError) as e:
+    import warnings
+    warnings.warn(
+        f"Failed to patch mirascope model_name for vLLM compatibility: {e}. "
+        f"Models with '/' in name may not work correctly.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
 
 
 @FrameworkRegistry.register("mirascope")
@@ -75,8 +80,8 @@ class MirascopeAdapter(BaseFrameworkAdapter):
     name = "mirascope"
     supported_modes = tuple(_MODE_MAP.keys())
 
-    def __init__(self, model, base_url=None, api_key=None, mode="default"):
-        super().__init__(model, base_url, api_key, mode)
+    def __init__(self, model, base_url=None, api_key=None, mode="default", **kwargs):
+        super().__init__(model, base_url, api_key, mode, **kwargs)
         self._model_id = f"openai/{self.model}:completions"
         llm.register_provider(
             "openai",
