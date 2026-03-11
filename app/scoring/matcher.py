@@ -6,7 +6,7 @@ from typing import Any
 
 from .hungarian import max_weight_matching
 from .metrics import _levenshtein
-from .schema_utils import (
+from .schema_traversal import (
     get_field_type,
     get_items_schema,
     get_properties,

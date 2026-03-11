@@ -1,14 +1,7 @@
 """JSON Schema의 description을 추출하여 rich 프롬프트 동적 생성."""
 from __future__ import annotations
 
-
-def _resolve_ref(ref: str, root_schema: dict) -> dict:
-    """#/$defs/xxx 형식의 $ref를 실제 스키마로 해석."""
-    parts = ref.lstrip("#/").split("/")
-    node = root_schema
-    for p in parts:
-        node = node[p]
-    return node
+from app.datasets.shared.schema_converter import _resolve_ref
 
 
 def _collect_descriptions(schema: dict, root_schema: dict | None = None, path: str = "", depth: int = 0) -> list[str]:
