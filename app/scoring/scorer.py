@@ -23,7 +23,7 @@ def score_result(
     Returns:
         {"total": float, "max": float, "pct": float, "field_scores": dict}
     """
-    if not extracted:
+    if extracted is None:
         leaf_count = _count_leaves(ground_truth)
         return {
             "total": 0.0,

@@ -152,41 +152,13 @@ def json_schema_to_pydantic(
         with_descriptions: True이면 Field(description=...) 포함, False이면 제거.
         model_name: 생성될 루트 모델 이름.
     """
-    # resume-schema.json처럼 schema_definition 래퍼 처리
     if "schema_definition" in schema:
         root_schema = schema["schema_definition"]
     else:
         root_schema = schema
 
     counter = [0]
-    props = root_schema.get("properties", {})
-    required_fields = set(root_schema.get("required", []))
-    field_definitions: dict[str, Any] = {}
-
-    for field_name, field_schema in props.items():
-        if field_name == "evaluation_config":
-            continue
-
-        resolved = _resolve_schema(field_schema, root_schema)
-        field_type = _get_type_annotation(
-            resolved, root_schema, with_descriptions, model_name, counter
-        )
-
-        desc = resolved.get("description")
-        is_required = field_name in required_fields
-
-        if with_descriptions and desc:
-            if is_required:
-                field_definitions[field_name] = (field_type, Field(description=desc))
-            else:
-                field_definitions[field_name] = (
-                    Optional[field_type],
-                    Field(default=None, description=desc),
-                )
-        else:
-            if is_required:
-                field_definitions[field_name] = (field_type, ...)
-            else:
-                field_definitions[field_name] = (Optional[field_type], None)
-
-    return create_model(model_name, **field_definitions)
+    model = _build_model(root_schema, root_schema, with_descriptions, model_name, counter)
+    model.__name__ = model_name
+    model.__qualname__ = model_name
+    return model

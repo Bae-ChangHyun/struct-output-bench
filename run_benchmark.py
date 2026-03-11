@@ -158,6 +158,7 @@ async def run_single_dataset(args, dataset_name: str, fw_modes: list[tuple[str, 
         combinations=combinations,
         save_predictions=not args.no_save_predictions,
         output_dir=run_dir,
+        max_concurrent=args.max_concurrent,
     )
 
     print_summary(results, fw_modes, combinations)
@@ -353,6 +354,9 @@ Available frameworks: """ + ", ".join(f"{fw}/{m}" for fw, m in ALL_FW_MODES),
         choices=["A_desc", "B_nodesc", "C_rich", "D_both"],
         help="실행할 조합 선택 (기본: 전체). 예: -c A_desc C_rich D_both",
     )
+
+    # 동시 실행
+    parser.add_argument("--max-concurrent", type=int, default=5, help="프레임워크당 동시 실행할 최대 샘플 수 (기본: 5)")
 
     # 출력
     parser.add_argument("--output-dir", "-o", type=str, default=None, help="결과 저장 디렉토리 (기본: results/)")

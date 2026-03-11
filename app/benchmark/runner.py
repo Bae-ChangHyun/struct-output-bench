@@ -98,6 +98,98 @@ def _save_framework_results(fw_results: list[dict], output_dir: Path, fw: str, m
     return output_path
 
 
+async def _run_sample(
+    fw_adapter: BaseFrameworkAdapter,
+    adapter: DatasetAdapter,
+    sample: dict,
+    combo: dict,
+    model_cache: dict[str, dict],
+    schema_dict: dict,
+    gt: dict,
+    label: str,
+    test_num: int,
+    total_tests: int,
+    save_predictions: bool,
+    fw: str,
+    mode: str,
+    model_name: str,
+    semaphore: asyncio.Semaphore,
+) -> dict:
+    """단일 샘플 처리 (semaphore로 동시 실행 제한)."""
+    sid = sample["id"]
+
+    if adapter.schema_key_fn:
+        cache_key = adapter.schema_key_fn(sample)
+    else:
+        cache_key = sid
+
+    cached = model_cache.get(cache_key)
+    if cached:
+        model_cls = cached["desc_model"] if combo["use_desc"] else cached["nodesc_model"]
+        rich_prompt = cached["rich_prompt"]
+    else:
+        model_cls = adapter.schema_fn(
+            schema_dict, with_descriptions=combo["use_desc"], model_name=f"D_{sid}",
+        )
+        rich_prompt = adapter.prompt_fn(schema_dict)
+
+    prompt = rich_prompt if combo["use_rich"] else adapter.minimal_prompt
+
+    meta_parts = []
+    if "category" in sample:
+        meta_parts.append(f"cat={sample['category']}")
+    if "true_depth" in sample:
+        meta_parts.append(f"depth={sample['true_depth']}")
+    if "domain" in sample:
+        meta_parts.append(f"dom={sample['domain']}")
+    meta_str = f" ({', '.join(meta_parts)})" if meta_parts else ""
+
+    pct = 0.0
+    sc: dict = {}
+    predicted: Any = None
+    succeeded = False
+    log_prefix = f"[{test_num}/{total_tests}] {label:30s} {combo['id']:8s} {sid}{meta_str}"
+
+    async with semaphore:
+        try:
+            r = await _run_single(fw_adapter, model_cls, prompt, sample["text"])
+            if r["success"] and r["data"]:
+                predicted = r["data"]
+                sc = score_result(predicted, gt, schema_dict)
+                pct = sc["pct"]
+                succeeded = True
+                logger.success(f"{log_prefix} OK {r['latency_ms']:>7.0f}ms  {pct:>5.1f}%")
+            else:
+                logger.warning(f"{log_prefix} FAIL {r['latency_ms']:>5.0f}ms  {(r.get('error') or '')[:40]}")
+        except Exception as e:
+            r = {"success": False, "latency_ms": 0, "error": str(e)[:200]}
+            logger.error(f"{log_prefix} ERROR {str(e)[:40]}")
+
+    result_entry: dict[str, Any] = {
+        "dataset": adapter.name,
+        "model": model_name,
+        "combination": combo["id"],
+        "framework": fw,
+        "mode": mode,
+        "sample_id": sid,
+        "success": r["success"],
+        "score_pct": pct,
+        "latency_ms": r["latency_ms"],
+        "error": r.get("error"),
+    }
+    for k in ("category", "true_depth", "domain", "schema_name"):
+        if k in sample:
+            result_entry[k] = sample[k]
+    if save_predictions:
+        result_entry["ground_truth"] = gt
+        result_entry["predicted"] = predicted
+        result_entry["field_scores"] = sc.get("field_scores", {})
+
+    result_entry["_pct"] = pct
+    result_entry["_succeeded"] = succeeded
+    return result_entry
+
+
 async def run_benchmark(
     adapter: DatasetAdapter,
     samples: list[dict],
@@ -108,17 +200,22 @@ async def run_benchmark(
     combinations: list[dict] | None = None,
     save_predictions: bool = True,
     output_dir: Path | None = None,
+    max_concurrent: int = 5,
 ) -> list[dict]:
     """벤치마크 실행.
+
+    Args:
+        max_concurrent: 프레임워크당 동시 실행할 최대 샘플 수 (기본 5).
 
     Returns:
         all_results: list of result dicts
     """
     combos = combinations or COMBINATIONS
     model_cache = _prepare_models_and_prompts(adapter, samples)
+    semaphore = asyncio.Semaphore(max_concurrent)
 
     total_tests = len(samples) * len(fw_modes) * len(combos)
-    logger.info(f"{adapter.name.upper()} Benchmark | {len(samples)} samples × {len(combos)} combos × {len(fw_modes)} frameworks = {total_tests} tests | Model: {model}")
+    logger.info(f"{adapter.name.upper()} Benchmark | {len(samples)} samples × {len(combos)} combos × {len(fw_modes)} frameworks = {total_tests} tests | Model: {model} | concurrency: {max_concurrent}")
 
     all_results: list[dict] = []
     test_num = 0
@@ -128,108 +225,41 @@ async def run_benchmark(
         fw_results: list[dict] = []
         logger.info(f"{'='*50} {label} {'='*50}")
 
-        # 어댑터 인스턴스를 한 번만 생성
         adapter_cls = FrameworkRegistry.get(fw)
         fw_adapter = adapter_cls(model=model, base_url=base_url, api_key=api_key, mode=mode)
 
         for combo in combos:
-            combo_scores: list[float] = []
-            combo_successes: list[bool] = []
             logger.info(f"--- {combo['label']} ({combo['id']}) ---")
 
+            tasks = []
             for sample in samples:
                 test_num += 1
-                sid = sample["id"]
                 schema_dict = adapter.get_schema_dict(sample)
                 gt = adapter.get_ground_truth(sample)
+                tasks.append(_run_sample(
+                    fw_adapter=fw_adapter, adapter=adapter, sample=sample,
+                    combo=combo, model_cache=model_cache,
+                    schema_dict=schema_dict, gt=gt, label=label,
+                    test_num=test_num, total_tests=total_tests,
+                    save_predictions=save_predictions,
+                    fw=fw, mode=mode, model_name=model, semaphore=semaphore,
+                ))
 
-                # 모델/프롬프트 선택
-                if adapter.schema_key_fn:
-                    cache_key = adapter.schema_key_fn(sample)
-                else:
-                    cache_key = sid
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                cached = model_cache.get(cache_key)
-                if cached:
-                    if combo["use_desc"]:
-                        model_cls = cached["desc_model"]
-                    else:
-                        model_cls = cached["nodesc_model"]
-                    rich_prompt = cached["rich_prompt"]
-                else:
-                    # cache miss: 동적 생성
-                    model_cls = adapter.schema_fn(
-                        schema_dict,
-                        with_descriptions=combo["use_desc"],
-                        model_name=f"D_{sid}",
-                    )
-                    rich_prompt = adapter.prompt_fn(schema_dict)
+            combo_scores: list[float] = []
+            combo_successes: list[bool] = []
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.error(f"Unexpected error: {r}")
+                    combo_scores.append(0.0)
+                    combo_successes.append(False)
+                    continue
+                combo_scores.append(r.pop("_pct"))
+                combo_successes.append(r.pop("_succeeded"))
+                all_results.append(r)
+                fw_results.append(r)
 
-                if combo["use_rich"]:
-                    prompt = rich_prompt
-                else:
-                    prompt = adapter.minimal_prompt
-
-                # 메타 정보 (있으면)
-                meta_parts = []
-                if "category" in sample:
-                    meta_parts.append(f"cat={sample['category']}")
-                if "true_depth" in sample:
-                    meta_parts.append(f"depth={sample['true_depth']}")
-                if "domain" in sample:
-                    meta_parts.append(f"dom={sample['domain']}")
-                meta_str = f" ({', '.join(meta_parts)})" if meta_parts else ""
-
-                pct = 0.0
-                sc: dict = {}
-                predicted: Any = None
-                succeeded = False
-                log_prefix = f"[{test_num}/{total_tests}] {label:30s} {combo['id']:8s} {sid}{meta_str}"
-                try:
-                    r = await _run_single(
-                        fw_adapter, model_cls, prompt, sample["text"],
-                    )
-                    if r["success"] and r["data"]:
-                        predicted = r["data"]
-                        sc = score_result(predicted, gt, schema_dict)
-                        pct = sc["pct"]
-                        succeeded = True
-                        logger.success(f"{log_prefix} OK {r['latency_ms']:>7.0f}ms  {pct:>5.1f}%")
-                    else:
-                        logger.warning(f"{log_prefix} FAIL {r['latency_ms']:>5.0f}ms  {(r.get('error') or '')[:40]}")
-                except Exception as e:
-                    r = {"success": False, "latency_ms": 0, "error": str(e)[:200]}
-                    logger.error(f"{log_prefix} ERROR {str(e)[:40]}")
-
-                combo_scores.append(pct)
-                combo_successes.append(succeeded)
-
-                result_entry: dict[str, Any] = {
-                    "dataset": adapter.name,
-                    "model": model,
-                    "combination": combo["id"],
-                    "framework": fw,
-                    "mode": mode,
-                    "sample_id": sid,
-                    "success": r["success"],
-                    "score_pct": pct,
-                    "latency_ms": r["latency_ms"],
-                    "error": r.get("error"),
-                }
-                # 데이터셋별 메타 필드
-                for k in ("category", "true_depth", "domain", "schema_name"):
-                    if k in sample:
-                        result_entry[k] = sample[k]
-
-                if save_predictions:
-                    result_entry["ground_truth"] = gt
-                    result_entry["predicted"] = predicted
-                    result_entry["field_scores"] = sc.get("field_scores", {})
-
-                all_results.append(result_entry)
-                fw_results.append(result_entry)
-
-            # 조합별 평균 (성공 케이스 기준 + 전체)
             ok = [s for s, succ in zip(combo_scores, combo_successes) if succ]
             fail_cnt = len(combo_scores) - len(ok)
             avg_ok = sum(ok) / len(ok) if ok else 0
@@ -241,7 +271,6 @@ async def run_benchmark(
                 f"(fail={fail_cnt}/{len(combo_scores)})"
             )
 
-        # 프레임워크 완료 시 개별 파일 저장
         if output_dir:
             saved = _save_framework_results(fw_results, output_dir, fw, mode)
             logger.success(f"[Saved] {saved} ({len(fw_results)} results)")
