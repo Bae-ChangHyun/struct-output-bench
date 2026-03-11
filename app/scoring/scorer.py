@@ -38,6 +38,9 @@ def score_result(
     pairs = flatten_to_pairs(ground_truth, extracted, root_schema, root_schema)
 
     if not pairs:
+        # GT와 extracted 모두 비어있지 않은데 pairs가 없으면 0점
+        if extracted and ground_truth:
+            return {"total": 0.0, "max": 1.0, "pct": 0.0, "field_scores": {}}
         return {"total": 0.0, "max": 0.0, "pct": 100.0, "field_scores": {}}
 
     # 2. 각 리프 페어에 타입 기반 메트릭 적용
@@ -60,16 +63,12 @@ def score_result(
     }
 
 
-def _count_leaves(data: Any) -> int:
-    """dict/list 내 리프 필드 수."""
+def _count_leaves(data: Any, _root: bool = True) -> int:
+    """dict/list 내 리프 필드 수. _root=True일 때만 최소 1 보장."""
     if isinstance(data, dict):
-        count = 0
-        for v in data.values():
-            count += _count_leaves(v)
-        return max(count, 1)
+        count = sum(_count_leaves(v, False) for v in data.values())
+        return max(count, 1) if _root else count
     if isinstance(data, list):
-        count = 0
-        for item in data:
-            count += _count_leaves(item)
-        return max(count, 1)
+        count = sum(_count_leaves(v, False) for v in data)
+        return max(count, 1) if _root else count
     return 1

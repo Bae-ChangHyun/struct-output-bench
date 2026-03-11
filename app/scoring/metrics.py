@@ -37,7 +37,7 @@ def ned_similarity(actual: str, predicted: str) -> float:
 
 
 def compare_number(actual: Any, predicted: Any, tolerance: float = 0.05) -> float:
-    """숫자 비교. exact match = 1.0, ±tolerance 이내 = 1.0, 초과 = 0.0."""
+    """숫자 비교. exact match = 1.0, ±tolerance 이내 = 1.0, 초과 시 점진적 감소."""
     try:
         a = float(actual)
         p = float(predicted)
@@ -46,10 +46,12 @@ def compare_number(actual: Any, predicted: Any, tolerance: float = 0.05) -> floa
     if a == p:
         return 1.0
     if a == 0:
-        # GT가 0이면 절대 오차 기반 비교 (pred도 0에 가까워야 함)
         return 1.0 if abs(p) <= tolerance else 0.0
     rel_error = abs(a - p) / abs(a)
-    return 1.0 if rel_error <= tolerance else 0.0
+    if rel_error <= tolerance:
+        return 1.0
+    # tolerance 초과 시 점진적 감소 (1.0에서 0.0으로)
+    return max(0.0, 1.0 - (rel_error - tolerance) / (1.0 - tolerance))
 
 
 def compare_boolean(actual: Any, predicted: Any) -> float:

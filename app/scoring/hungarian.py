@@ -4,11 +4,28 @@ typo_extraction_benchmark 프로젝트에서 추출.
 """
 from __future__ import annotations
 
+MAX_MATCHING_SIZE = 200
+
+
+def _greedy_matching(scores: list[list[float]], n: int, m: int) -> list[tuple[int, int]]:
+    """O(n*m) 탐욕 매칭 — 배열이 클 때 Hungarian 대신 사용."""
+    used_j: set[int] = set()
+    pairs: list[tuple[int, int]] = []
+    for i in range(n):
+        best_j, best_score = -1, -1.0
+        for j in range(m):
+            if j not in used_j and scores[i][j] > best_score:
+                best_j, best_score = j, scores[i][j]
+        if best_j >= 0 and best_score > 0:
+            pairs.append((i, best_j))
+            used_j.add(best_j)
+    return pairs
+
 
 def max_weight_matching(scores: list[list[float]]) -> list[tuple[int, int]]:
     """n×m 점수 행렬에서 최적 (i, j) 매칭 쌍을 반환.
 
-    O(k^3) 복잡도 (k = max(n, m)).
+    O(k^3) 복잡도 (k = max(n, m)). k > MAX_MATCHING_SIZE이면 greedy fallback.
     """
     n = len(scores)
     m = len(scores[0]) if n > 0 else 0
@@ -16,7 +33,10 @@ def max_weight_matching(scores: list[list[float]]) -> list[tuple[int, int]]:
         return []
 
     k = max(n, m)
-    max_score = max(scores[i][j] for i in range(n) for j in range(m))
+    if k > MAX_MATCHING_SIZE:
+        return _greedy_matching(scores, n, m)
+
+    max_score = max(0.0, max(scores[i][j] for i in range(n) for j in range(m)))
     big = max_score + 1.0
 
     cost = [[big for _ in range(k)] for _ in range(k)]
