@@ -5,21 +5,25 @@ description = "Benchmark various structured output frameworks with identical inp
 requires-python = ">=3.12"
 dependencies = [
     "loguru>=0.7.3",
-    "openai>=2.21.0",
+    "openai>=2.45.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "pyyaml>=6.0.3",
+    "typer>=0.19.2",
 ]
 
 [project.optional-dependencies]
 # Individual frameworks
-instructor = ["instructor>=1.14.5"]
-langchain = ["langchain-openai>=1.1.10"]
-llamaindex = ["llama-index-llms-openai-like>=0.1.3", "llama-index-program-openai>=0.1.7"]
-marvin = ["marvin>=3.2.6"]
-mirascope = ["mirascope[openai]>=2.2.2"]
-guardrails = ["guardrails-ai>=0.9.0"]
-pydantic-ai = ["pydantic-ai>=1.0.0"]
+instructor = ["instructor>=1.15.4"]
+langchain = ["langchain-openai>=1.3.5"]
+llamaindex = ["llama-index-llms-openai-like>=0.5.6"]
+marvin = ["marvin>=3.2.7"]
+mirascope = ["mirascope[openai]>=2.5.0"]
+guardrails = ["guardrails-ai>=0.10.2", "typer>=0.12.0"]
+# <1.95: pydantic-ai 1.95.0부터 ModelResponsePartsManager가 model_request_parameters를
+# 필수 인자로 요구하는데 marvin 3.2.7은 무인자로 호출한다(streaming.py) → 런타임 크래시.
+# marvin과 pydantic-ai 어댑터를 공존시키려면 1.94.x가 상한.
+pydantic-ai = ["pydantic-ai>=1.61.0,<1.95"]
 
 # All frameworks
 all = [

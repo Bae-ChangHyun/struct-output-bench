@@ -27,7 +27,12 @@ class MarvinAdapter(BaseFrameworkAdapter):
         self._model = OpenAIChatModel(self.model, provider=provider)
 
     def _build_agent(self, system_prompt: str) -> marvin.Agent:
-        return marvin.Agent(model=self._model, instructions=system_prompt)
+        # 다른 7개 어댑터와 동일하게 temperature=0 고정 (결정성/공정성).
+        return marvin.Agent(
+            model=self._model,
+            instructions=system_prompt,
+            model_settings={"temperature": 0},
+        )
 
     async def extract(
         self,
@@ -37,11 +42,13 @@ class MarvinAdapter(BaseFrameworkAdapter):
     ) -> ExtractionResult:
         agent = self._build_agent(system_prompt)
 
+        # handlers=[]: marvin 기본 PrintHandler의 rich 콘솔 출력을 꺼 벤치 로그 오염 방지.
         if self.mode == "extract":
             results = await marvin.extract_async(
                 data=text,
                 target=schema_class,
                 agent=agent,
+                handlers=[],
             )
             if not results:
                 return ExtractionResult(
@@ -54,6 +61,7 @@ class MarvinAdapter(BaseFrameworkAdapter):
                 data=text,
                 target=schema_class,
                 agent=agent,
+                handlers=[],
             )
 
         return ExtractionResult(

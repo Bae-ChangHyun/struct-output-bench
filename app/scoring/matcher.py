@@ -164,20 +164,21 @@ def flatten_to_pairs(
     if gt is None and pred is None:
         return []
 
-    # object
-    if field_type == "object" or isinstance(gt, dict) or isinstance(pred, dict):
-        return _flatten_object(gt, pred, schema, root_schema, path)
+    # 구조(object/array)는 정답(GT) 우선으로 판정한다. 예측이 잘못된 타입을 반환해도
+    # (예: 리스트 자리에 dict 환각) GT 리프가 분모에서 사라지지 않게 하여, 구조 환각이
+    # 정직한 누락보다 유리해지는 편향을 막는다. GT가 없을 때만 예측 구조로 판정.
+    ref = gt if gt is not None else pred
 
-    # array
-    if field_type == "array" or isinstance(gt, list) or isinstance(pred, list):
+    if isinstance(ref, dict):
+        return _flatten_object(gt, pred, schema, root_schema, path)
+    if isinstance(ref, list):
         return _flatten_array(gt, pred, schema, root_schema, path)
 
-    # leaf
+    # leaf (스칼라)
     if field_type in ("string", "number", "integer", "boolean"):
         return [LeafPair(path, gt, pred, field_type)]
 
-    # fallback: 값에서 타입 추론
-    inferred = infer_type(gt if gt is not None else pred)
+    inferred = infer_type(ref)
     if inferred == "object":
         return _flatten_object(gt, pred, schema, root_schema, path)
     if inferred == "array":

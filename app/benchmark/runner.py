@@ -1,13 +1,20 @@
 """통합 벤치마크 러너.
 
-데이터셋 종류에 관계없이 동일한 로직으로:
-  samples × combinations × frameworks → score + save
+samples × combinations × frameworks 를 동일 로직으로 실행·채점·저장한다.
+
+측정 방법론:
+- repeats: 각 셀을 여러 번 실행해 실행 간 변동을 측정(중앙값 latency, 평균 점수, 재현 표준편차).
+- interleave: 한 샘플에서 모든 프레임워크를 번갈아 실행해 서버 부하 표류가 특정 프레임워크에
+  체계적 유불리로 작용하지 않게 한다.
+- warmup: 프레임워크별 첫 호출의 커넥션 콜드스타트를 계측에서 제외.
+- per-call timeout: 한 프레임워크가 멈춰도 벤치 전체가 막히지 않게 실패로 기록.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import math
+import statistics
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,7 +24,7 @@ from loguru import logger
 from app.frameworks.base import BaseFrameworkAdapter
 from app.frameworks.registry import FrameworkRegistry
 from app.scoring import score_result
-from app.benchmark.config import COMBINATIONS, ALL_FW_MODES
+from app.benchmark.config import COMBINATIONS
 from app.benchmark.datasets import DatasetAdapter
 
 import app.frameworks  # noqa: F401  (어댑터 자동 등록)
@@ -25,26 +32,40 @@ import app.frameworks  # noqa: F401  (어댑터 자동 등록)
 RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "results"
 
 
-def _confidence_interval_95(scores: list[float]) -> tuple[float, float]:
-    """95% 신뢰구간 계산 (정규근사). (lower, upper) 반환."""
+def _mean_ci95_over_cells(scores: list[float]) -> tuple[float, float]:
+    """벤치 셀(sample×combo)들의 평균에 대한 95% 신뢰구간(정규근사). (lower, upper).
+
+    주의: 이 CI는 '데이터셋 셀 간 분산' 즉 스위트 수준의 평균 신뢰구간이며,
+    동일 입력의 실행 간 재현성이 아니다(그건 repeats 기반 재현 표준편차로 별도 보고).
+    """
     n = len(scores)
     if n < 2:
         mean = scores[0] if n == 1 else 0.0
         return (mean, mean)
-    mean = sum(scores) / n
-    variance = sum((x - mean) ** 2 for x in scores) / (n - 1)
-    std_err = math.sqrt(variance / n)
+    mean = statistics.fmean(scores)
+    std_err = statistics.stdev(scores) / math.sqrt(n)
     margin = 1.96 * std_err
-    return (round(mean - margin, 1), round(mean + margin, 1))
+    # 점수는 [0,100] 유계이므로 정규근사 구간을 클램프한다.
+    return (round(max(0.0, mean - margin), 1), round(min(100.0, mean + margin), 1))
 
 
-async def _run_single(
+async def _run_once(
     adapter: BaseFrameworkAdapter, schema_class: type, system_prompt: str, text: str,
+    timeout: float,
 ) -> dict:
-    """단일 프레임워크 추출 실행."""
-    result = await adapter.run(
-        text=text, schema_class=schema_class, system_prompt=system_prompt,
-    )
+    """단일 추출 1회. timeout 초과 시 실패로 기록해 전체 벤치 중단을 막는다."""
+    try:
+        result = await asyncio.wait_for(
+            adapter.run(text=text, schema_class=schema_class, system_prompt=system_prompt),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        return {
+            "success": False,
+            "latency_ms": round(timeout * 1000, 1),
+            "data": None,
+            "error": f"timeout after {timeout}s",
+        }
     return {
         "success": result.success,
         "latency_ms": round(result.latency_ms, 1),
@@ -56,11 +77,7 @@ async def _run_single(
 def _prepare_models_and_prompts(
     adapter: DatasetAdapter, samples: list[dict]
 ) -> dict[str, dict]:
-    """스키마별 Pydantic 모델(desc/nodesc)과 rich prompt를 사전 생성.
-
-    Returns:
-        {schema_key: {"desc_model": cls, "nodesc_model": cls, "rich_prompt": str, "schema_dict": dict}}
-    """
+    """스키마별 Pydantic 모델(desc/nodesc)과 rich prompt를 사전 생성해 재사용한다."""
     cache: dict[str, dict] = {}
 
     for sample in samples:
@@ -88,40 +105,13 @@ def _prepare_models_and_prompts(
     return cache
 
 
-def _save_framework_results(fw_results: list[dict], output_dir: Path, fw: str, mode: str) -> Path:
-    """프레임워크별 결과를 개별 JSON 파일로 저장."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{fw}--{mode}.json"
-    output_path = output_dir / filename
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(fw_results, f, indent=2, ensure_ascii=False, default=str)
-    return output_path
-
-
-async def _run_sample(
-    fw_adapter: BaseFrameworkAdapter,
-    adapter: DatasetAdapter,
-    sample: dict,
-    combo: dict,
-    model_cache: dict[str, dict],
-    schema_dict: dict,
-    gt: dict,
-    label: str,
-    test_num: int,
-    total_tests: int,
-    save_predictions: bool,
-    fw: str,
-    mode: str,
-    model_name: str,
-    semaphore: asyncio.Semaphore,
-) -> dict:
-    """단일 샘플 처리 (semaphore로 동시 실행 제한)."""
+def _resolve_model_and_prompt(
+    adapter: DatasetAdapter, sample: dict, combo: dict, model_cache: dict[str, dict]
+) -> tuple[type, str]:
+    """샘플·조합에 맞는 Pydantic 모델과 프롬프트를 선택한다."""
     sid = sample["id"]
-
-    if adapter.schema_key_fn:
-        cache_key = adapter.schema_key_fn(sample)
-    else:
-        cache_key = sid
+    schema_dict = adapter.get_schema_dict(sample)
+    cache_key = adapter.schema_key_fn(sample) if adapter.schema_key_fn else sid
 
     cached = model_cache.get(cache_key)
     if cached:
@@ -129,65 +119,128 @@ async def _run_sample(
         rich_prompt = cached["rich_prompt"]
     else:
         model_cls = adapter.schema_fn(
-            schema_dict, with_descriptions=combo["use_desc"], model_name=f"D_{sid}",
+            schema_dict, with_descriptions=combo["use_desc"], model_name=f"D_{sid}"
         )
         rich_prompt = adapter.prompt_fn(schema_dict)
 
     prompt = rich_prompt if combo["use_rich"] else adapter.minimal_prompt
+    return model_cls, prompt
 
-    meta_parts = []
-    if "category" in sample:
-        meta_parts.append(f"cat={sample['category']}")
-    if "true_depth" in sample:
-        meta_parts.append(f"depth={sample['true_depth']}")
-    if "domain" in sample:
-        meta_parts.append(f"dom={sample['domain']}")
-    meta_str = f" ({', '.join(meta_parts)})" if meta_parts else ""
 
-    pct = 0.0
-    sc: dict = {}
+def _aggregate_cell(
+    runs: list[dict], gt: dict, schema_dict: dict,
+    dataset: str, model: str, combo: dict, fw: str, mode: str, sample: dict,
+    repeats: int, save_predictions: bool,
+) -> dict:
+    """한 셀의 반복 실행 결과를 채점·집계해 결과 엔트리를 만든다."""
+    scores: list[float] = []
+    scores_exact: list[float] = []
+    latencies: list[float] = []
     predicted: Any = None
-    succeeded = False
-    log_prefix = f"[{test_num}/{total_tests}] {label:30s} {combo['id']:8s} {sid}{meta_str}"
+    field_scores: dict = {}
+    last_error: str | None = None
 
-    async with semaphore:
-        try:
-            r = await _run_single(fw_adapter, model_cls, prompt, sample["text"])
-            if r["success"] and r["data"]:
-                predicted = r["data"]
-                sc = score_result(predicted, gt, schema_dict)
-                pct = sc["pct"]
-                succeeded = True
-                logger.success(f"{log_prefix} OK {r['latency_ms']:>7.0f}ms  {pct:>5.1f}%")
-            else:
-                logger.warning(f"{log_prefix} FAIL {r['latency_ms']:>5.0f}ms  {(r.get('error') or '')[:40]}")
-        except Exception as e:
-            r = {"success": False, "latency_ms": 0, "error": str(e)[:200]}
-            logger.error(f"{log_prefix} ERROR {str(e)[:40]}")
+    for r in runs:
+        if r["success"] and r["data"]:
+            sc = score_result(r["data"], gt, schema_dict)
+            scores.append(sc["pct"])
+            scores_exact.append(sc["pct_exact"])
+            latencies.append(r["latency_ms"])
+            predicted = r["data"]
+            field_scores = sc.get("field_scores", {})
+        elif r.get("error"):
+            last_error = r["error"]
 
-    result_entry: dict[str, Any] = {
-        "dataset": adapter.name,
-        "model": model_name,
+    n_success = len(scores)
+    succeeded = n_success > 0
+
+    entry: dict[str, Any] = {
+        "dataset": dataset,
+        "model": model,
         "combination": combo["id"],
         "framework": fw,
         "mode": mode,
-        "sample_id": sid,
-        "success": r["success"],
-        "score_pct": pct,
-        "latency_ms": r["latency_ms"],
-        "error": r.get("error"),
+        "sample_id": sample["id"],
+        "success": succeeded,
+        "n_repeats": repeats,
+        "n_success": n_success,
+        "success_rate": round(n_success / repeats, 3),
+        # 점수는 전체 반복 대비 평균(실패 repeat = 0점)이라 신뢰성이 점수에 반영된다.
+        # repeats=1이면 기존과 동일. std는 성공분의 품질 일관성.
+        "score_pct": round(sum(scores) / repeats, 1),
+        "score_pct_exact": round(sum(scores_exact) / repeats, 1),
+        "score_pct_std": round(statistics.stdev(scores), 2) if len(scores) >= 2 else 0.0,
+        "latency_ms": round(statistics.median(latencies), 1) if latencies else 0.0,
+        "latencies": latencies,
+        "error": None if succeeded else (last_error or "all repeats failed"),
     }
     for k in ("category", "true_depth", "domain", "schema_name"):
         if k in sample:
-            result_entry[k] = sample[k]
-    if save_predictions:
-        result_entry["ground_truth"] = gt
-        result_entry["predicted"] = predicted
-        result_entry["field_scores"] = sc.get("field_scores", {})
+            entry[k] = sample[k]
 
-    result_entry["_pct"] = pct
-    result_entry["_succeeded"] = succeeded
-    return result_entry
+    if save_predictions:
+        entry["ground_truth"] = gt
+        entry["predicted"] = predicted
+        entry["field_scores"] = field_scores
+
+    return entry
+
+
+def _save_framework_results(fw_results: list[dict], output_dir: Path, fw: str, mode: str) -> Path:
+    """프레임워크별 결과를 개별 JSON 파일로 저장한다."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{fw}--{mode}.json"
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(fw_results, f, indent=2, ensure_ascii=False, default=str)
+    return output_path
+
+
+async def _warmup(
+    adapters: dict[tuple[str, str], BaseFrameworkAdapter],
+    adapter: DatasetAdapter, sample: dict, combo: dict,
+    model_cache: dict[str, dict], timeout: float,
+) -> None:
+    """프레임워크별 1회 throwaway 호출로 커넥션 콜드스타트를 계측에서 제외한다."""
+    model_cls, prompt = _resolve_model_and_prompt(adapter, sample, combo, model_cache)
+    for (fw, mode), fw_adapter in adapters.items():
+        r = await _run_once(fw_adapter, model_cls, prompt, sample["text"], timeout)
+        status = "ok" if r["success"] else f"fail({(r.get('error') or '')[:30]})"
+        logger.debug(f"warmup {fw}/{mode}: {status}")
+
+
+async def _process_sample(
+    semaphore: asyncio.Semaphore,
+    adapters: dict[tuple[str, str], BaseFrameworkAdapter],
+    fw_modes: list[tuple[str, str]],
+    adapter: DatasetAdapter, sample: dict, combo: dict,
+    model_cache: dict[str, dict], model: str,
+    repeats: int, per_call_timeout: float | None, save_predictions: bool,
+) -> list[dict]:
+    """한 샘플에 대해 모든 프레임워크×반복을 인터리브 실행·집계한다.
+
+    반복 라운드마다 프레임워크를 번갈아 호출해 한 샘플 안에서는 모든 프레임워크가 유사한
+    서버 조건을 겪게 하고(공정성), 샘플 간 병렬성은 호출측 semaphore로 제한한다.
+    반환: fw_modes 순서의 셀 결과 엔트리 리스트.
+    """
+    async with semaphore:
+        gt = adapter.get_ground_truth(sample)
+        schema_dict = adapter.get_schema_dict(sample)
+        model_cls, prompt = _resolve_model_and_prompt(adapter, sample, combo, model_cache)
+
+        cell_runs: dict[tuple[str, str], list[dict]] = {k: [] for k in adapters}
+        for _rep in range(repeats):
+            for key, fw_adapter in adapters.items():
+                timeout = per_call_timeout or fw_adapter.timeout
+                run = await _run_once(fw_adapter, model_cls, prompt, sample["text"], timeout)
+                cell_runs[key].append(run)
+
+    return [
+        _aggregate_cell(
+            cell_runs[(fw, mode)], gt, schema_dict, adapter.name, model,
+            combo, fw, mode, sample, repeats, save_predictions,
+        )
+        for (fw, mode) in fw_modes
+    ]
 
 
 async def run_benchmark(
@@ -200,148 +253,202 @@ async def run_benchmark(
     combinations: list[dict] | None = None,
     save_predictions: bool = True,
     output_dir: Path | None = None,
+    repeats: int = 1,
+    warmup: bool = False,
+    per_call_timeout: float | None = None,
     max_concurrent: int = 5,
 ) -> list[dict]:
-    """벤치마크 실행.
+    """벤치마크 실행. 결과 엔트리 리스트를 반환한다.
+
+    한 샘플 안에서 프레임워크를 번갈아 실행(interleave)해 서버 부하 표류가 특정 프레임워크에
+    체계적 유불리로 작용하지 않게 하고, 샘플 간에는 semaphore로 병렬 실행한다(속도).
 
     Args:
-        max_concurrent: 프레임워크당 동시 실행할 최대 샘플 수 (기본 5).
-
-    Returns:
-        all_results: list of result dicts
+        repeats: 셀당 실행 횟수(>=1). 실행 간 변동 측정에 사용.
+        warmup: 프레임워크별 첫 호출 콜드스타트를 계측 제외.
+        per_call_timeout: 호출당 타임아웃(초). None이면 어댑터별 기본 timeout 사용.
+        max_concurrent: 동시에 처리할 최대 샘플 수.
     """
+    if repeats < 1:
+        raise ValueError(f"repeats must be >= 1, got {repeats}")
+
     combos = combinations or COMBINATIONS
     model_cache = _prepare_models_and_prompts(adapter, samples)
+
+    adapters: dict[tuple[str, str], BaseFrameworkAdapter] = {
+        (fw, mode): FrameworkRegistry.get(fw)(model=model, base_url=base_url, api_key=api_key, mode=mode)
+        for fw, mode in fw_modes
+    }
+
+    total_cells = len(samples) * len(fw_modes) * len(combos)
+    total_calls = total_cells * repeats
+    logger.info(
+        f"{adapter.name.upper()} Benchmark | {len(samples)} samples × {len(combos)} combos × "
+        f"{len(fw_modes)} frameworks × {repeats} repeats = {total_calls} calls "
+        f"(interleaved, warmup={warmup}, concurrency={max_concurrent}) | Model: {model}"
+    )
+
+    if warmup and samples:
+        await _warmup(adapters, adapter, samples[0], combos[0], model_cache, per_call_timeout or _first_timeout(adapters))
+
     semaphore = asyncio.Semaphore(max_concurrent)
-
-    total_tests = len(samples) * len(fw_modes) * len(combos)
-    logger.info(f"{adapter.name.upper()} Benchmark | {len(samples)} samples × {len(combos)} combos × {len(fw_modes)} frameworks = {total_tests} tests | Model: {model} | concurrency: {max_concurrent}")
-
+    fw_results_map: dict[tuple[str, str], list[dict]] = {k: [] for k in adapters}
     all_results: list[dict] = []
-    test_num = 0
+    cell_num = 0
 
-    for fw, mode in fw_modes:
-        label = f"{fw}/{mode}"
-        fw_results: list[dict] = []
-        logger.info(f"{'='*50} {label} {'='*50}")
+    for combo in combos:
+        logger.info(f"--- {combo['label']} ({combo['id']}) ---")
 
-        adapter_cls = FrameworkRegistry.get(fw)
-        fw_adapter = adapter_cls(model=model, base_url=base_url, api_key=api_key, mode=mode)
-
-        for combo in combos:
-            logger.info(f"--- {combo['label']} ({combo['id']}) ---")
-
-            tasks = []
-            for sample in samples:
-                test_num += 1
-                schema_dict = adapter.get_schema_dict(sample)
-                gt = adapter.get_ground_truth(sample)
-                tasks.append(_run_sample(
-                    fw_adapter=fw_adapter, adapter=adapter, sample=sample,
-                    combo=combo, model_cache=model_cache,
-                    schema_dict=schema_dict, gt=gt, label=label,
-                    test_num=test_num, total_tests=total_tests,
-                    save_predictions=save_predictions,
-                    fw=fw, mode=mode, model_name=model, semaphore=semaphore,
-                ))
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            combo_scores: list[float] = []
-            combo_successes: list[bool] = []
-            for r in results:
-                if isinstance(r, Exception):
-                    logger.error(f"Unexpected error: {r}")
-                    combo_scores.append(0.0)
-                    combo_successes.append(False)
-                    continue
-                combo_scores.append(r.pop("_pct"))
-                combo_successes.append(r.pop("_succeeded"))
-                all_results.append(r)
-                fw_results.append(r)
-
-            ok = [s for s, succ in zip(combo_scores, combo_successes) if succ]
-            fail_cnt = len(combo_scores) - len(ok)
-            avg_ok = sum(ok) / len(ok) if ok else 0
-            avg_all = sum(combo_scores) / len(combo_scores) if combo_scores else 0
-            logger.info(
-                f"→ {label:30s} {combo['id']:8s} "
-                f"AVG={avg_ok:>5.1f}% (success only)  "
-                f"AVG_ALL={avg_all:>5.1f}% (incl. fail)  "
-                f"(fail={fail_cnt}/{len(combo_scores)})"
+        # 샘플은 병렬(semaphore 상한), 각 샘플 안에서는 프레임워크 인터리브.
+        tasks = [
+            _process_sample(
+                semaphore, adapters, fw_modes, adapter, sample, combo,
+                model_cache, model, repeats, per_call_timeout, save_predictions,
             )
+            for sample in samples
+        ]
+        per_sample_entries = await asyncio.gather(*tasks)
 
-        if output_dir:
+        # gather는 입력(=샘플) 순서를 보존하므로 로그·집계는 결정적.
+        for sample, entries in zip(samples, per_sample_entries):
+            for entry in entries:
+                cell_num += 1
+                all_results.append(entry)
+                fw_results_map[(entry["framework"], entry["mode"])].append(entry)
+                _log_cell(cell_num, total_cells, entry["framework"], entry["mode"], combo, sample, entry)
+
+        _log_combo_averages(all_results, fw_modes, combo)
+
+    if output_dir:
+        for (fw, mode), fw_results in fw_results_map.items():
             saved = _save_framework_results(fw_results, output_dir, fw, mode)
             logger.success(f"[Saved] {saved} ({len(fw_results)} results)")
 
     return all_results
 
 
+def _first_timeout(adapters: dict[tuple[str, str], BaseFrameworkAdapter]) -> float:
+    for a in adapters.values():
+        return a.timeout
+    return 120.0
+
+
+def _log_cell(cell_num, total_cells, fw, mode, combo, sample, entry):
+    label = f"{fw}/{mode}"
+    meta_parts = []
+    for k, tag in (("category", "cat"), ("true_depth", "depth"), ("domain", "dom")):
+        if k in sample:
+            meta_parts.append(f"{tag}={sample[k]}")
+    meta_str = f" ({', '.join(meta_parts)})" if meta_parts else ""
+    prefix = f"[{cell_num}/{total_cells}] {label:30s} {combo['id']:8s} {sample['id']}{meta_str}"
+    std = f"±{entry['score_pct_std']:.1f}" if entry["n_repeats"] > 1 else ""
+
+    if entry["success"]:
+        rel = "" if entry["n_success"] == entry["n_repeats"] else f" {entry['n_success']}/{entry['n_repeats']}ok"
+        logger.success(
+            f"{prefix} OK {entry['latency_ms']:>7.0f}ms  "
+            f"NED={entry['score_pct']:>5.1f}%{std} exact={entry['score_pct_exact']:>5.1f}%{rel}"
+        )
+    else:
+        logger.warning(f"{prefix} FAIL  {(entry['error'] or '')[:40]}")
+
+
+def _log_combo_averages(all_results, fw_modes, combo):
+    for fw, mode in fw_modes:
+        subset = [
+            r for r in all_results
+            if r["combination"] == combo["id"] and r["framework"] == fw and r["mode"] == mode
+        ]
+        if not subset:
+            continue
+        ok = [r["score_pct"] for r in subset if r["success"]]
+        all_scores = [r["score_pct"] for r in subset]
+        fail_cnt = len(subset) - len(ok)
+        avg_ok = statistics.fmean(ok) if ok else 0.0
+        avg_all = statistics.fmean(all_scores) if all_scores else 0.0
+        logger.info(
+            f"→ {fw}/{mode:20s} {combo['id']:8s} "
+            f"AVG={avg_ok:>5.1f}% (success only)  "
+            f"AVG_ALL={avg_all:>5.1f}% (incl. fail)  "
+            f"(fail={fail_cnt}/{len(subset)})"
+        )
+
+
 def print_summary(all_results: list[dict], fw_modes: list[tuple[str, str]], combos: list[dict] | None = None):
     """터미널에 최종 요약 테이블 출력."""
     combos = combos or COMBINATIONS
 
-    # 모델명 추출 (결과에서)
     models = sorted(set(r.get("model", "") for r in all_results if r.get("model")))
     model_str = ", ".join(models) if models else "unknown"
+    repeats = max((r.get("n_repeats", 1) for r in all_results), default=1)
 
-    summary_lines = []
-    summary_lines.append(f"{'='*90}")
-    summary_lines.append(f" FINAL SUMMARY: Average Score by Framework × Combination")
-    summary_lines.append(f" Model: {model_str}")
-    summary_lines.append(f"{'='*90}")
+    lines = []
+    lines.append(f"{'='*104}")
+    lines.append(f" FINAL SUMMARY: Score by Framework × Combination  (NED = 부분점수, Exact = 엄격일치)")
+    lines.append(f" Model: {model_str} | repeats={repeats}")
+    lines.append(f" 점수 = 전체 반복 대비 평균(실패 repeat=0) | 콤보 셀 = ≥1회 성공 셀만 | Overall·CI·Exact = 전멸(0점) 셀 포함 전체")
+    lines.append(f"{'='*104}")
     header = f"  {'Framework/Mode':<30}"
     for combo in combos:
         header += f" {combo['id'][:12]:>12}"
-    header += f" {'Overall [95% CI]':>22}"
-    summary_lines.append(header)
-    summary_lines.append(f"  {'-'*30}" + f" {'-'*12}" * len(combos) + f" {'-'*22}")
+    header += f" {'NED% [95%CI]':>20} {'Exact%':>8}"
+    if repeats > 1:
+        header += f" {'repro±σ':>8}"
+    lines.append(header)
+    lines.append(f"  {'-'*30}" + f" {'-'*12}" * len(combos) + f" {'-'*20} {'-'*8}" + (f" {'-'*8}" if repeats > 1 else ""))
 
     for fw, mode in fw_modes:
         label = f"{fw}/{mode}"
         row = f"  {label:<30}"
         overall: list[float] = []
+        overall_exact: list[float] = []
+        repro_stds: list[float] = []
         for combo in combos:
             subset = [
                 r for r in all_results
                 if r["combination"] == combo["id"] and r["framework"] == fw and r["mode"] == mode
             ]
-            ok = [r["score_pct"] for r in subset if r.get("success")]
-            all_scores = [r["score_pct"] for r in subset]
+            ok = [r["score_pct"] for r in subset if r["success"]]
             fail = len(subset) - len(ok)
+            # Overall/Exact/repro는 실패 셀(=0점)까지 포함해 항상 누적한다. ALL-FAIL 콤보를
+            # 제외하면 전멸한 프레임워크가 부분성공한 프레임워크보다 높게 나오는 역전이 생긴다.
+            overall.extend(r["score_pct"] for r in subset)
+            overall_exact.extend(r["score_pct_exact"] for r in subset)
+            repro_stds.extend(r["score_pct_std"] for r in subset if r["success"])
+            # 셀 표시는 '성공 시 품질'을 보이도록 success-only 평균.
             if ok:
-                avg = sum(ok) / len(ok)
-                overall.extend(all_scores)
+                avg = statistics.fmean(ok)
                 row += f" {avg:>7.1f}%({fail}F)" if fail else f" {avg:>10.1f}%"
             else:
                 row += f" {'ALL FAIL':>12}"
         if overall:
-            avg_overall = sum(overall) / len(overall)
-            ci_lo, ci_hi = _confidence_interval_95(overall)
-            row += f" {avg_overall:>6.1f}% [{ci_lo:.1f}-{ci_hi:.1f}]"
+            avg_overall = statistics.fmean(overall)
+            ci_lo, ci_hi = _mean_ci95_over_cells(overall)
+            avg_exact = statistics.fmean(overall_exact) if overall_exact else 0.0
+            row += f" {avg_overall:>6.1f}% [{ci_lo:.0f}-{ci_hi:.0f}] {avg_exact:>7.1f}%"
+            if repeats > 1:
+                mean_std = statistics.fmean(repro_stds) if repro_stds else 0.0
+                row += f" {mean_std:>7.2f}"
         else:
-            row += f" {'N/A':>10}"
-        summary_lines.append(row)
+            row += f" {'N/A':>20} {'N/A':>8}"
+        lines.append(row)
 
-    # 조합별 전체 평균
     combo_avg_row = f"\n  {'COMBINATION AVG':<30}"
     for combo in combos:
         subset = [r for r in all_results if r["combination"] == combo["id"]]
         all_scores = [r["score_pct"] for r in subset]
-        fail = len(subset) - len([r for r in subset if r.get("success")])
-        avg = sum(all_scores) / len(all_scores) if all_scores else 0
+        fail = len(subset) - len([r for r in subset if r["success"]])
+        avg = statistics.fmean(all_scores) if all_scores else 0.0
         combo_avg_row += f" {avg:>7.1f}%({fail}F)"
-    summary_lines.append(combo_avg_row)
+    lines.append(combo_avg_row)
 
-    # breakdown (category 또는 domain)
     for group_key in ("category", "domain"):
         groups = sorted(set(r.get(group_key, "") for r in all_results if r.get(group_key)))
         if not groups:
             continue
-        summary_lines.append(f"\n{'='*90}")
-        summary_lines.append(f" {group_key.upper()} BREAKDOWN")
-        summary_lines.append(f"{'='*90}")
+        lines.append(f"\n{'='*104}")
+        lines.append(f" {group_key.upper()} BREAKDOWN (NED%, success only)")
+        lines.append(f"{'='*104}")
         for g in groups:
             row = f"  {g:<30}"
             for combo in combos:
@@ -349,13 +456,13 @@ def print_summary(all_results: list[dict], fw_modes: list[tuple[str, str]], comb
                     r for r in all_results
                     if r["combination"] == combo["id"] and r.get(group_key) == g
                 ]
-                ok = [r["score_pct"] for r in subset if r.get("success")]
-                avg = sum(ok) / len(ok) if ok else 0
+                ok = [r["score_pct"] for r in subset if r["success"]]
+                avg = statistics.fmean(ok) if ok else 0.0
                 fail = len(subset) - len(ok)
                 row += f" {avg:>7.1f}%({fail}F)"
-            summary_lines.append(row)
+            lines.append(row)
 
-    logger.info("\n" + "\n".join(summary_lines))
+    logger.info("\n" + "\n".join(lines))
 
 
 def save_results(

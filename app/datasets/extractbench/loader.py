@@ -5,6 +5,8 @@ import json
 import random
 from pathlib import Path
 
+from loguru import logger
+
 from .downloader import ensure_dataset
 from .pdf_converter import extract_text_from_pdf, TEXTS_DIR
 
@@ -22,6 +24,8 @@ def load_samples(max_text_length: int = 50000, max_samples: int | None = None, s
     dataset_dir = ensure_dataset()
     TEXTS_DIR.mkdir(parents=True, exist_ok=True)
     samples: list[dict] = []
+    skipped_no_gold = 0
+    skipped_too_long = 0
 
     # dataset/ 내의 domain/schema 디렉토리를 탐색
     for domain_dir in sorted(dataset_dir.iterdir()):
@@ -51,6 +55,8 @@ def load_samples(max_text_length: int = 50000, max_samples: int | None = None, s
                 stem = pdf_path.stem
                 gold_path = pdf_gold_dir / f"{stem}.gold.json"
                 if not gold_path.exists():
+                    skipped_no_gold += 1
+                    logger.warning(f"gold JSON 없음 → 스킵: {domain}/{schema_name}/{stem}")
                     continue
 
                 # Gold JSON 로드
@@ -67,6 +73,7 @@ def load_samples(max_text_length: int = 50000, max_samples: int | None = None, s
                     cache_path.write_text(text, encoding="utf-8")
 
                 if max_text_length and len(text) > max_text_length:
+                    skipped_too_long += 1
                     continue
 
                 samples.append({
@@ -78,6 +85,12 @@ def load_samples(max_text_length: int = 50000, max_samples: int | None = None, s
                     "schema_name": schema_name,
                     "pdf_path": str(pdf_path),
                 })
+
+    if skipped_no_gold or skipped_too_long:
+        logger.info(
+            f"ExtractBench 로드: {len(samples)}개 사용 "
+            f"(gold 없음 {skipped_no_gold}개, max_text_length({max_text_length}) 초과 {skipped_too_long}개 제외)"
+        )
 
     if max_samples and len(samples) > max_samples:
         rng = random.Random(seed)

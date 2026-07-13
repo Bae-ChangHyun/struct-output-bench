@@ -8,15 +8,19 @@ MAX_MATCHING_SIZE = 200
 
 
 def _greedy_matching(scores: list[list[float]], n: int, m: int) -> list[tuple[int, int]]:
-    """O(n*m) 탐욕 매칭 — 배열이 클 때 Hungarian 대신 사용."""
+    """O(n*m) 탐욕 매칭 — 배열이 클 때 Hungarian 대신 사용.
+
+    Hungarian과 동일하게 min(n,m)개를 강제 매칭한다(점수 부호와 무관). 과거의 score>0
+    임계 때문에 배열 길이 200 경계에서 채점이 불연속이 되던 문제를 제거.
+    """
     used_j: set[int] = set()
     pairs: list[tuple[int, int]] = []
     for i in range(n):
-        best_j, best_score = -1, -1.0
+        best_j, best_score = -1, float("-inf")
         for j in range(m):
             if j not in used_j and scores[i][j] > best_score:
                 best_j, best_score = j, scores[i][j]
-        if best_j >= 0 and best_score > 0:
+        if best_j >= 0:
             pairs.append((i, best_j))
             used_j.add(best_j)
     return pairs
