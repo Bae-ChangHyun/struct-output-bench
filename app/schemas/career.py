@@ -299,8 +299,8 @@ class OnlineProfile(BaseModel):
     sns_links: list[str] = Field(
         title="SNS 링크",
         description="SNS 링크(깃헙/링크드인/블로그 등)",
-        minitems=0,  
-        maxitems=10,  
+        min_length=0,  
+        max_length=10,  
         default_factory=list
     )
     
@@ -308,43 +308,43 @@ class MainInfo(BaseModel):
     careers: list[Career] = Field(
         title="경력",
         description="경력",
-        minitems=0,
-        maxitems=20,
+        min_length=0,
+        max_length=20,
         default_factory=list
     )
     activity_experiences: list[ActivityExperience] = Field(
         title="활동/경험",
         description="활동/경험(대외활동/교육프로그램/봉사/부트캠프 등)",
-        minitems=0,
-        maxitems=15,
+        min_length=0,
+        max_length=15,
         default_factory=list
     )
     overseas_experiences: list[OverseasExperience] = Field(
         title="해외경험",
         description="해외경험",
-        minitems=0,
-        maxitems=10,
+        min_length=0,
+        max_length=10,
         default_factory=list
     )
     language_skills: list[LanguageSkill] = Field(
         title="어학능력",
         description="어학능력",
-        minitems=0,
-        maxitems=10,
+        min_length=0,
+        max_length=10,
         default_factory=list
     )
     certificates: list[Certificate] = Field(
         title="자격/면허",
         description="자격/면허",
-        minitems=0,
-        maxitems=10,
+        min_length=0,
+        max_length=10,
         default_factory=list
     )
     award_experiences: list[AwardExperience] = Field(
         title="수상 경력",
         description="수상 경력",
-        minitems=0,
-        maxitems=10,
+        min_length=0,
+        max_length=10,
         default_factory=list
     )
     employment_military_info: EmploymentAndMilitaryInfo | None = Field(

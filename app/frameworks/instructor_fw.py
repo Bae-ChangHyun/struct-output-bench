@@ -14,7 +14,10 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 _MODE_MAP = {
-    "default": instructor.Mode.TOOLS,
+    # vLLM/guided-decoding 엔드포인트는 tool-call 파서가 없어 plain TOOLS에서 tool_calls를
+    # 반환하지 않는다(응답은 content의 JSON). cvfit과 동일하게 기본을 JSON으로 둔다.
+    # 명시적 tool-call 벤치마크는 "tools"/"tools_strict" 모드로 지정한다.
+    "default": instructor.Mode.JSON,
     "tools": instructor.Mode.TOOLS,
     "tools_strict": instructor.Mode.TOOLS_STRICT,
     "json": instructor.Mode.JSON,
@@ -30,7 +33,7 @@ class InstructorAdapter(BaseFrameworkAdapter):
 
     def __init__(self, model, base_url=None, api_key=None, mode="default", **kwargs):
         super().__init__(model, base_url, api_key, mode, **kwargs)
-        inst_mode = _MODE_MAP.get(self.mode, instructor.Mode.TOOLS)
+        inst_mode = _MODE_MAP.get(self.mode, instructor.Mode.JSON)
         base_client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, timeout=self.timeout)
 
         _orig_create = base_client.chat.completions.create
