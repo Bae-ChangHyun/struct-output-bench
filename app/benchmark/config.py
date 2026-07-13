@@ -11,7 +11,7 @@ COMBINATIONS = [
 
 # 전체 프레임워크/모드 (alias 제외, 고유 코드 경로만)
 ALL_FW_MODES = [
-    # instructor: "default"는 "tools" alias
+    # instructor: "default"는 "json" alias (vLLM guided-decoding 기본값)
     ("instructor", "tools"),
     ("instructor", "tools_strict"),
     ("instructor", "json"),

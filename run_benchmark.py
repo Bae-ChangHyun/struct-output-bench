@@ -144,6 +144,7 @@ async def run_single_dataset(args, dataset_name: str, fw_modes: list[tuple[str, 
         "model": args.model,
         "base_url": args.base_url,
         "combos": args.combos,
+        "repeats": args.repeats,
         "timestamp": ts,
     }
     _save_run_config(run_dir, run_config)
@@ -158,6 +159,9 @@ async def run_single_dataset(args, dataset_name: str, fw_modes: list[tuple[str, 
         combinations=combinations,
         save_predictions=not args.no_save_predictions,
         output_dir=run_dir,
+        repeats=args.repeats,
+        warmup=args.warmup,
+        per_call_timeout=args.per_call_timeout,
     )
 
     print_summary(results, fw_modes, combinations)
@@ -242,6 +246,7 @@ async def resume_run(args, run_dir: Path, fw_modes: list[tuple[str, str]]):
         from app.benchmark.config import COMBINATIONS
         combinations = [c for c in COMBINATIONS if c["id"] in saved_combos]
 
+    resume_repeats = config.get("repeats", args.repeats)
     results = await run_benchmark(
         adapter=adapter,
         samples=samples,
@@ -252,6 +257,9 @@ async def resume_run(args, run_dir: Path, fw_modes: list[tuple[str, str]]):
         combinations=combinations,
         save_predictions=not args.no_save_predictions,
         output_dir=run_dir,
+        repeats=resume_repeats,
+        warmup=args.warmup,
+        per_call_timeout=args.per_call_timeout,
     )
 
     # 기존 결과 + 새 결과 합쳐서 summary
@@ -354,6 +362,11 @@ Available frameworks: """ + ", ".join(f"{fw}/{m}" for fw, m in ALL_FW_MODES),
         help="실행할 조합 선택 (기본: 전체). 예: -c A_desc C_rich D_both",
     )
 
+    # 측정 방법론
+    parser.add_argument("--repeats", type=int, default=1, help="셀당 실행 횟수(>=1). 실행 간 변동·재현성 측정 (기본: 1)")
+    parser.add_argument("--warmup", action="store_true", help="프레임워크별 첫 호출 콜드스타트를 계측에서 제외")
+    parser.add_argument("--per-call-timeout", type=float, default=None, help="호출당 타임아웃(초). 기본: 어댑터별 timeout")
+
     # 출력
     parser.add_argument("--output-dir", "-o", type=str, default=None, help="결과 저장 디렉토리 (기본: results/)")
     parser.add_argument("--no-save-predictions", action="store_true", help="GT/Predicted 저장 안 함 (용량 절약)")
@@ -365,6 +378,8 @@ Available frameworks: """ + ", ".join(f"{fw}/{m}" for fw, m in ALL_FW_MODES),
         parser.error("--dataset 또는 --resume 중 하나는 필수입니다.")
     if args.dataset == "custom" and not args.custom_path:
         parser.error("--dataset custom requires --custom-path")
+    if args.repeats < 1:
+        parser.error("--repeats는 1 이상이어야 합니다.")
 
     asyncio.run(async_main(args))
 
