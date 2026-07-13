@@ -208,6 +208,41 @@ async def _warmup(
         logger.debug(f"warmup {fw}/{mode}: {status}")
 
 
+async def _process_sample(
+    semaphore: asyncio.Semaphore,
+    adapters: dict[tuple[str, str], BaseFrameworkAdapter],
+    fw_modes: list[tuple[str, str]],
+    adapter: DatasetAdapter, sample: dict, combo: dict,
+    model_cache: dict[str, dict], model: str,
+    repeats: int, per_call_timeout: float | None, save_predictions: bool,
+) -> list[dict]:
+    """한 샘플에 대해 모든 프레임워크×반복을 인터리브 실행·집계한다.
+
+    반복 라운드마다 프레임워크를 번갈아 호출해 한 샘플 안에서는 모든 프레임워크가 유사한
+    서버 조건을 겪게 하고(공정성), 샘플 간 병렬성은 호출측 semaphore로 제한한다.
+    반환: fw_modes 순서의 셀 결과 엔트리 리스트.
+    """
+    async with semaphore:
+        gt = adapter.get_ground_truth(sample)
+        schema_dict = adapter.get_schema_dict(sample)
+        model_cls, prompt = _resolve_model_and_prompt(adapter, sample, combo, model_cache)
+
+        cell_runs: dict[tuple[str, str], list[dict]] = {k: [] for k in adapters}
+        for _rep in range(repeats):
+            for key, fw_adapter in adapters.items():
+                timeout = per_call_timeout or fw_adapter.timeout
+                run = await _run_once(fw_adapter, model_cls, prompt, sample["text"], timeout)
+                cell_runs[key].append(run)
+
+    return [
+        _aggregate_cell(
+            cell_runs[(fw, mode)], gt, schema_dict, adapter.name, model,
+            combo, fw, mode, sample, repeats, save_predictions,
+        )
+        for (fw, mode) in fw_modes
+    ]
+
+
 async def run_benchmark(
     adapter: DatasetAdapter,
     samples: list[dict],
@@ -221,16 +256,18 @@ async def run_benchmark(
     repeats: int = 1,
     warmup: bool = False,
     per_call_timeout: float | None = None,
+    max_concurrent: int = 5,
 ) -> list[dict]:
     """벤치마크 실행. 결과 엔트리 리스트를 반환한다.
 
-    한 샘플에서 프레임워크를 번갈아 실행(interleave)해 서버 부하 표류가 특정 프레임워크에
-    체계적 유불리로 작용하지 않게 한다.
+    한 샘플 안에서 프레임워크를 번갈아 실행(interleave)해 서버 부하 표류가 특정 프레임워크에
+    체계적 유불리로 작용하지 않게 하고, 샘플 간에는 semaphore로 병렬 실행한다(속도).
 
     Args:
         repeats: 셀당 실행 횟수(>=1). 실행 간 변동 측정에 사용.
         warmup: 프레임워크별 첫 호출 콜드스타트를 계측 제외.
         per_call_timeout: 호출당 타임아웃(초). None이면 어댑터별 기본 timeout 사용.
+        max_concurrent: 동시에 처리할 최대 샘플 수.
     """
     if repeats < 1:
         raise ValueError(f"repeats must be >= 1, got {repeats}")
@@ -248,12 +285,13 @@ async def run_benchmark(
     logger.info(
         f"{adapter.name.upper()} Benchmark | {len(samples)} samples × {len(combos)} combos × "
         f"{len(fw_modes)} frameworks × {repeats} repeats = {total_calls} calls "
-        f"(interleaved, warmup={warmup}) | Model: {model}"
+        f"(interleaved, warmup={warmup}, concurrency={max_concurrent}) | Model: {model}"
     )
 
     if warmup and samples:
         await _warmup(adapters, adapter, samples[0], combos[0], model_cache, per_call_timeout or _first_timeout(adapters))
 
+    semaphore = asyncio.Semaphore(max_concurrent)
     fw_results_map: dict[tuple[str, str], list[dict]] = {k: [] for k in adapters}
     all_results: list[dict] = []
     cell_num = 0
@@ -261,28 +299,23 @@ async def run_benchmark(
     for combo in combos:
         logger.info(f"--- {combo['label']} ({combo['id']}) ---")
 
-        for sample in samples:
-            sid = sample["id"]
-            gt = adapter.get_ground_truth(sample)
-            schema_dict = adapter.get_schema_dict(sample)
-            model_cls, prompt = _resolve_model_and_prompt(adapter, sample, combo, model_cache)
+        # 샘플은 병렬(semaphore 상한), 각 샘플 안에서는 프레임워크 인터리브.
+        tasks = [
+            _process_sample(
+                semaphore, adapters, fw_modes, adapter, sample, combo,
+                model_cache, model, repeats, per_call_timeout, save_predictions,
+            )
+            for sample in samples
+        ]
+        per_sample_entries = await asyncio.gather(*tasks)
 
-            cell_runs: dict[tuple[str, str], list[dict]] = {k: [] for k in adapters}
-            for _rep in range(repeats):
-                for key, fw_adapter in adapters.items():
-                    timeout = per_call_timeout or fw_adapter.timeout
-                    run = await _run_once(fw_adapter, model_cls, prompt, sample["text"], timeout)
-                    cell_runs[key].append(run)
-
-            for (fw, mode) in fw_modes:
+        # gather는 입력(=샘플) 순서를 보존하므로 로그·집계는 결정적.
+        for sample, entries in zip(samples, per_sample_entries):
+            for entry in entries:
                 cell_num += 1
-                entry = _aggregate_cell(
-                    cell_runs[(fw, mode)], gt, schema_dict, adapter.name, model,
-                    combo, fw, mode, sample, repeats, save_predictions,
-                )
                 all_results.append(entry)
-                fw_results_map[(fw, mode)].append(entry)
-                _log_cell(cell_num, total_cells, fw, mode, combo, sample, entry)
+                fw_results_map[(entry["framework"], entry["mode"])].append(entry)
+                _log_cell(cell_num, total_cells, entry["framework"], entry["mode"], combo, sample, entry)
 
         _log_combo_averages(all_results, fw_modes, combo)
 

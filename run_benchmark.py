@@ -162,6 +162,7 @@ async def run_single_dataset(args, dataset_name: str, fw_modes: list[tuple[str, 
         repeats=args.repeats,
         warmup=args.warmup,
         per_call_timeout=args.per_call_timeout,
+        max_concurrent=args.max_concurrent,
     )
 
     print_summary(results, fw_modes, combinations)
@@ -260,6 +261,7 @@ async def resume_run(args, run_dir: Path, fw_modes: list[tuple[str, str]]):
         repeats=resume_repeats,
         warmup=args.warmup,
         per_call_timeout=args.per_call_timeout,
+        max_concurrent=args.max_concurrent,
     )
 
     # 기존 결과 + 새 결과 합쳐서 summary
@@ -366,6 +368,7 @@ Available frameworks: """ + ", ".join(f"{fw}/{m}" for fw, m in ALL_FW_MODES),
     parser.add_argument("--repeats", type=int, default=1, help="셀당 실행 횟수(>=1). 실행 간 변동·재현성 측정 (기본: 1)")
     parser.add_argument("--warmup", action="store_true", help="프레임워크별 첫 호출 콜드스타트를 계측에서 제외")
     parser.add_argument("--per-call-timeout", type=float, default=None, help="호출당 타임아웃(초). 기본: 어댑터별 timeout")
+    parser.add_argument("--max-concurrent", type=int, default=5, help="동시 실행할 최대 샘플 수 (기본: 5)")
 
     # 출력
     parser.add_argument("--output-dir", "-o", type=str, default=None, help="결과 저장 디렉토리 (기본: results/)")
